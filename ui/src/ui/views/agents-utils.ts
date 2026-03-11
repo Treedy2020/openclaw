@@ -9,6 +9,7 @@ import {
   resolveToolProfilePolicy,
 } from "../../../../src/agents/tool-policy-shared.js";
 import type { AgentIdentityResult, AgentsFilesListResult, AgentsListResult } from "../types.ts";
+import type { SkillStatusEntry } from "../types.ts";
 
 export const TOOL_SECTIONS = listCoreToolSections();
 
@@ -354,6 +355,79 @@ export function resolveConfiguredCronModelSuggestions(
         continue;
       }
       addModelConfigIds(out, (entry as Record<string, unknown>).model);
+    }
+  }
+  return sortLocaleStrings(out);
+}
+
+export function resolveConfiguredSkillSuggestions(
+  configForm: Record<string, unknown> | null,
+): string[] {
+  if (!configForm || typeof configForm !== "object") {
+    return [];
+  }
+  const agents = (configForm as { agents?: unknown }).agents;
+  if (!agents || typeof agents !== "object") {
+    return [];
+  }
+  const list = (agents as { list?: unknown }).list;
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  const out = new Set<string>();
+  for (const entry of list) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const skills = (entry as { skills?: unknown }).skills;
+    if (!Array.isArray(skills)) {
+      continue;
+    }
+    for (const skill of skills) {
+      if (typeof skill !== "string") {
+        continue;
+      }
+      const value = skill.trim();
+      if (value) {
+        out.add(value);
+      }
+    }
+  }
+  return sortLocaleStrings(out);
+}
+
+export function resolveUsableSkillSuggestions(skills: SkillStatusEntry[]): string[] {
+  const out = new Set<string>();
+  for (const skill of skills) {
+    if (!skill || typeof skill.name !== "string") {
+      continue;
+    }
+    if (skill.disabled || !skill.eligible || skill.blockedByAllowlist) {
+      continue;
+    }
+    const value = skill.name.trim();
+    if (value) {
+      out.add(value);
+    }
+  }
+  return sortLocaleStrings(out);
+}
+
+export function resolveInstalledUsableSkillSuggestions(skills: SkillStatusEntry[]): string[] {
+  const out = new Set<string>();
+  for (const skill of skills) {
+    if (!skill || typeof skill.name !== "string") {
+      continue;
+    }
+    if (skill.bundled || skill.source === "openclaw-bundled") {
+      continue;
+    }
+    if (skill.disabled || !skill.eligible || skill.blockedByAllowlist) {
+      continue;
+    }
+    const value = skill.name.trim();
+    if (value) {
+      out.add(value);
     }
   }
   return sortLocaleStrings(out);

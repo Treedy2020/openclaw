@@ -7,6 +7,7 @@ import {
   renderStreamingGroup,
 } from "../chat/grouped-render.ts";
 import { normalizeMessage, normalizeRoleForGrouping } from "../chat/message-normalizer.ts";
+import { resolveSlashSuggestions } from "../chat/slash-autocomplete.ts";
 import { icons } from "../icons.ts";
 import { detectTextDirection } from "../text-direction.ts";
 import type { SessionsListResult } from "../types.ts";
@@ -63,6 +64,8 @@ export type ChatProps = {
   splitRatio?: number;
   assistantName: string;
   assistantAvatar: string | null;
+  modelSuggestions?: string[];
+  skillSuggestions?: string[];
   // Image attachments
   attachments?: ChatAttachment[];
   onAttachmentsChange?: (attachments: ChatAttachment[]) => void;
@@ -251,6 +254,18 @@ export function renderChat(props: ChatProps) {
   };
 
   const hasAttachments = (props.attachments?.length ?? 0) > 0;
+  const trimmedDraft = props.draft.trimStart();
+  const lowerDraft = trimmedDraft.toLowerCase();
+  const slashSuggestions = resolveSlashSuggestions(props.draft, {
+    models: props.modelSuggestions ?? [],
+    skills: props.skillSuggestions ?? [],
+  });
+  const slashSourceCountLabel =
+    lowerDraft.startsWith("/model") && !lowerDraft.startsWith("/models")
+      ? `models: ${(props.modelSuggestions ?? []).length}`
+      : lowerDraft.startsWith("/skill")
+        ? `skills: ${(props.skillSuggestions ?? []).length}`
+        : null;
   const composePlaceholder = props.connected
     ? hasAttachments
       ? "Add a message or paste more images..."
@@ -424,40 +439,82 @@ export function renderChat(props: ChatProps) {
       <div class="chat-compose">
         ${renderAttachmentPreview(props)}
         <div class="chat-compose__row">
-          <label class="field chat-compose__field">
-            <span>Message</span>
-            <textarea
-              ${ref((el) => el && adjustTextareaHeight(el as HTMLTextAreaElement))}
-              .value=${props.draft}
-              dir=${detectTextDirection(props.draft)}
-              ?disabled=${!props.connected}
-              @keydown=${(e: KeyboardEvent) => {
-                if (e.key !== "Enter") {
-                  return;
-                }
-                if (e.isComposing || e.keyCode === 229) {
-                  return;
-                }
-                if (e.shiftKey) {
-                  return;
-                } // Allow Shift+Enter for line breaks
-                if (!props.connected) {
-                  return;
-                }
-                e.preventDefault();
-                if (canCompose) {
-                  props.onSend();
-                }
-              }}
-              @input=${(e: Event) => {
-                const target = e.target as HTMLTextAreaElement;
-                adjustTextareaHeight(target);
-                props.onDraftChange(target.value);
-              }}
-              @paste=${(e: ClipboardEvent) => handlePaste(e, props)}
-              placeholder=${composePlaceholder}
-            ></textarea>
-          </label>
+          <div class="chat-compose__input">
+            <label class="field chat-compose__field">
+              <span>Message</span>
+              <textarea
+                ${ref((el) => el && adjustTextareaHeight(el as HTMLTextAreaElement))}
+                .value=${props.draft}
+                dir=${detectTextDirection(props.draft)}
+                ?disabled=${!props.connected}
+                @keydown=${(e: KeyboardEvent) => {
+                  if (e.key !== "Enter") {
+                    if (e.key === "Tab" && slashSuggestions.length > 0) {
+                      e.preventDefault();
+                      props.onDraftChange(slashSuggestions[0]?.insertText ?? props.draft);
+                    }
+                    return;
+                  }
+                  if (e.isComposing || e.keyCode === 229) {
+                    return;
+                  }
+                  if (e.shiftKey) {
+                    return;
+                  } // Allow Shift+Enter for line breaks
+                  if (!props.connected) {
+                    return;
+                  }
+                  e.preventDefault();
+                  if (canCompose) {
+                    props.onSend();
+                  }
+                }}
+                @input=${(e: Event) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  adjustTextareaHeight(target);
+                  props.onDraftChange(target.value);
+                }}
+                @paste=${(e: ClipboardEvent) => handlePaste(e, props)}
+                placeholder=${composePlaceholder}
+              ></textarea>
+            </label>
+            ${
+              slashSuggestions.length > 0
+                ? html`
+                  <div class="chat-slash-suggestions" role="listbox" aria-label="Slash suggestions">
+                    ${slashSuggestions.map(
+                      (suggestion) => html`
+                        <button
+                          class="chat-slash-suggestion"
+                          type="button"
+                          role="option"
+                          @click=${() => props.onDraftChange(suggestion.insertText)}
+                        >
+                          <span class="chat-slash-suggestion__label">${suggestion.label}</span>
+                          ${
+                            suggestion.detail
+                              ? html`
+                                <span class="chat-slash-suggestion__detail">${suggestion.detail}</span>
+                              `
+                              : nothing
+                          }
+                        </button>
+                      `,
+                    )}
+                    ${
+                      slashSourceCountLabel
+                        ? html`
+                          <div class="chat-slash-suggestions__meta">
+                            ${slashSourceCountLabel}
+                          </div>
+                        `
+                        : nothing
+                    }
+                  </div>
+                `
+                : nothing
+            }
+          </div>
           <div class="chat-compose__actions">
             <button
               class="btn"

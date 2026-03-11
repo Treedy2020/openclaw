@@ -5,7 +5,7 @@ import { toSanitizedMarkdownHtml } from "../markdown.ts";
 import { openExternalUrlSafe } from "../open-external-url.ts";
 import { detectTextDirection } from "../text-direction.ts";
 import type { MessageGroup } from "../types/chat-types.ts";
-import { renderCopyAsMarkdownButton } from "./copy-as-markdown.ts";
+import { renderCopyAsMarkdownButton, renderCopyMessageButton } from "./copy-as-markdown.ts";
 import {
   extractTextCached,
   extractThinkingCached,
@@ -247,11 +247,13 @@ function renderGroupedMessage(
   const markdownBase = extractedText?.trim() ? extractedText : null;
   const reasoningMarkdown = extractedThinking ? formatReasoningMarkdown(extractedThinking) : null;
   const markdown = markdownBase;
-  const canCopyMarkdown = role === "assistant" && Boolean(markdown?.trim());
+  const copyText = markdown?.trim() ? markdown : null;
+  const canCopyMessage = Boolean(copyText);
+  const shouldUseMarkdownCopyLabel = role === "assistant" && canCopyMessage;
 
   const bubbleClasses = [
     "chat-bubble",
-    canCopyMarkdown ? "has-copy" : "",
+    canCopyMessage ? "has-copy" : "",
     opts.isStreaming ? "streaming" : "",
     "fade-in",
   ]
@@ -268,7 +270,13 @@ function renderGroupedMessage(
 
   return html`
     <div class="${bubbleClasses}">
-      ${canCopyMarkdown ? renderCopyAsMarkdownButton(markdown!) : nothing}
+      ${
+        canCopyMessage
+          ? shouldUseMarkdownCopyLabel
+            ? renderCopyAsMarkdownButton(copyText!)
+            : renderCopyMessageButton(copyText!)
+          : nothing
+      }
       ${renderMessageImages(images)}
       ${
         reasoningMarkdown

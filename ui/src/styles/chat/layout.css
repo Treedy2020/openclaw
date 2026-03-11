@@ -278,6 +278,14 @@
   align-items: stretch;
 }
 
+.chat-compose__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* Hide the "Message" label - keep textarea only */
 .chat-compose__field > span {
   display: none;
@@ -320,6 +328,63 @@
   line-height: 1;
   white-space: nowrap;
   box-sizing: border-box;
+}
+
+.chat-slash-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 188px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.chat-slash-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.chat-slash-suggestion:hover,
+.chat-slash-suggestion:focus-visible {
+  background: var(--panel-strong);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  outline: none;
+}
+
+.chat-slash-suggestion__label {
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-slash-suggestion__detail {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.chat-slash-suggestions__meta {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding: 6px 8px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  text-transform: lowercase;
 }
 
 /* Chat controls - moved to content-header area, left aligned */
