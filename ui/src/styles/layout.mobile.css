@@ -94,6 +94,15 @@
     display: none;
   }
 
+  .topbar-status .skin-toggle {
+    min-width: 32px;
+    padding: 0 8px;
+  }
+
+  .topbar-status .skin-toggle span {
+    display: none;
+  }
+
   /* Nav */
   .nav {
     padding: 8px 10px;

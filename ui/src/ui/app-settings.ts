@@ -36,13 +36,14 @@ import {
 } from "./navigation.ts";
 import { saveSettings, type UiSettings } from "./storage.ts";
 import { startThemeTransition, type ThemeTransitionContext } from "./theme-transition.ts";
-import { resolveTheme, type ResolvedTheme, type ThemeMode } from "./theme.ts";
+import { resolveTheme, type ResolvedTheme, type SkinMode, type ThemeMode } from "./theme.ts";
 import type { AgentsListResult } from "./types.ts";
 
 type SettingsHost = {
   settings: UiSettings;
   password?: string;
   theme: ThemeMode;
+  skin: SkinMode;
   themeResolved: ResolvedTheme;
   applySessionKey: string;
   sessionKey: string;
@@ -72,6 +73,11 @@ export function applySettings(host: SettingsHost, next: UiSettings) {
   if (next.theme !== host.theme) {
     host.theme = next.theme;
     applyResolvedTheme(host, resolveTheme(next.theme));
+  }
+  const resolvedSkin = next.skin ?? "default";
+  if (resolvedSkin !== host.skin) {
+    host.skin = resolvedSkin;
+    applyResolvedSkin(host, resolvedSkin);
   }
   host.applySessionKey = host.settings.lastActiveSessionKey;
 }
@@ -180,6 +186,12 @@ export function setTheme(host: SettingsHost, next: ThemeMode, context?: ThemeTra
   });
 }
 
+export function setSkin(host: SettingsHost, next: SkinMode) {
+  host.skin = next;
+  applySettings(host, { ...host.settings, skin: next });
+  applyResolvedSkin(host, next);
+}
+
 export async function refreshActiveTab(host: SettingsHost) {
   if (host.tab === "overview") {
     await loadOverview(host);
@@ -268,7 +280,9 @@ export function inferBasePath() {
 
 export function syncThemeWithSettings(host: SettingsHost) {
   host.theme = host.settings.theme ?? "system";
+  host.skin = host.settings.skin ?? "default";
   applyResolvedTheme(host, resolveTheme(host.theme));
+  applyResolvedSkin(host, host.skin);
 }
 
 export function applyResolvedTheme(host: SettingsHost, resolved: ResolvedTheme) {
@@ -279,6 +293,14 @@ export function applyResolvedTheme(host: SettingsHost, resolved: ResolvedTheme) 
   const root = document.documentElement;
   root.dataset.theme = resolved;
   root.style.colorScheme = resolved;
+}
+
+export function applyResolvedSkin(host: SettingsHost, resolved: SkinMode) {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const root = document.documentElement;
+  root.dataset.skin = resolved;
 }
 
 export function attachThemeListener(host: SettingsHost) {

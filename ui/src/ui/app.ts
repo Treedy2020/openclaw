@@ -41,6 +41,7 @@ import {
   loadCron as loadCronInternal,
   loadOverview as loadOverviewInternal,
   setTab as setTabInternal,
+  setSkin as setSkinInternal,
   setTheme as setThemeInternal,
   onPopState as onPopStateInternal,
 } from "./app-settings.ts";
@@ -61,7 +62,7 @@ import type { SkillMessage } from "./controllers/skills.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import { loadSettings, type UiSettings } from "./storage.ts";
-import type { ResolvedTheme, ThemeMode } from "./theme.ts";
+import type { ResolvedTheme, SkinMode, ThemeMode } from "./theme.ts";
 import type {
   AgentsListResult,
   AgentsFilesListResult,
@@ -124,6 +125,7 @@ export class OpenClawApp extends LitElement {
   @state() onboarding = resolveOnboardingMode();
   @state() connected = false;
   @state() theme: ThemeMode = this.settings.theme ?? "system";
+  @state() skin: SkinMode = this.settings.skin ?? "default";
   @state() themeResolved: ResolvedTheme = "dark";
   @state() hello: GatewayHelloOk | null = null;
   @state() lastError: string | null = null;
@@ -473,6 +475,10 @@ export class OpenClawApp extends LitElement {
 
   setTheme(next: ThemeMode, context?: Parameters<typeof setThemeInternal>[2]) {
     setThemeInternal(this as unknown as Parameters<typeof setThemeInternal>[0], next, context);
+  }
+
+  setSkin(next: SkinMode) {
+    setSkinInternal(this as unknown as Parameters<typeof setSkinInternal>[0], next);
   }
 
   async loadOverview() {

@@ -282,4 +282,41 @@ describe("loadSettings default gateway URL derivation", () => {
     expect(loadSettings().token).toBe("");
     expect(sessionStorage.length).toBe(0);
   });
+
+  it("persists and reloads non-default skin", async () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "gateway.example:8443",
+      pathname: "/",
+    });
+
+    const { loadSettings, saveSettings } = await import("./storage.ts");
+    saveSettings({
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
+      token: "session-token",
+      sessionKey: "main",
+      lastActiveSessionKey: "main",
+      theme: "system",
+      skin: "apple",
+      chatFocusMode: false,
+      chatShowThinking: true,
+      splitRatio: 0.6,
+      navCollapsed: false,
+      navGroupsCollapsed: {},
+    });
+
+    expect(JSON.parse(localStorage.getItem("openclaw.control.settings.v1") ?? "{}")).toEqual({
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
+      sessionKey: "main",
+      lastActiveSessionKey: "main",
+      theme: "system",
+      skin: "apple",
+      chatFocusMode: false,
+      chatShowThinking: true,
+      splitRatio: 0.6,
+      navCollapsed: false,
+      navGroupsCollapsed: {},
+    });
+    expect(loadSettings().skin).toBe("apple");
+  });
 });
