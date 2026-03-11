@@ -35,6 +35,8 @@ export const PROVIDER_ENV_API_KEY_CANDIDATES: Record<string, string[]> = {
   ollama: ["OLLAMA_API_KEY"],
   vllm: ["VLLM_API_KEY"],
   kilocode: ["KILOCODE_API_KEY"],
+  "azure-openai-responses": ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_KEY"],
+  "azure-openai": ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_KEY"],
 };
 
 export function listKnownProviderEnvApiKeyNames(): string[] {

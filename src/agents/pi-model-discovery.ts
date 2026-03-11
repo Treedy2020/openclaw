@@ -134,9 +134,41 @@ function createAuthStorage(AuthStorageLike: unknown, path: string, creds: PiCred
   return withRuntimeOverride;
 }
 
+function resolveEnvProviderCredentials(): PiCredentialMap {
+  const creds: PiCredentialMap = {};
+  const env = process.env;
+
+  // anthropic-vertex: Google Cloud credentials + project ID
+  const hasGoogleCreds = !!env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+  const hasVertexProject = !!(
+    env.ANTHROPIC_VERTEX_PROJECT_ID?.trim() || env.GOOGLE_CLOUD_PROJECT?.trim()
+  );
+  if (hasGoogleCreds && hasVertexProject) {
+    creds["anthropic-vertex"] = { type: "api_key", key: "<authenticated>" };
+  }
+
+  // google-vertex: Google Cloud credentials + project + location
+  const hasGoogleProject = !!(env.GOOGLE_CLOUD_PROJECT?.trim() || env.GCLOUD_PROJECT?.trim());
+  const hasGoogleLocation = !!env.GOOGLE_CLOUD_LOCATION?.trim();
+  if (hasGoogleCreds && hasGoogleProject && hasGoogleLocation) {
+    creds["google-vertex"] = { type: "api_key", key: "<authenticated>" };
+  }
+
+  // azure-openai-responses
+  const azureKey = env.AZURE_OPENAI_API_KEY?.trim() || env.AZURE_OPENAI_KEY?.trim();
+  if (azureKey) {
+    creds["azure-openai-responses"] = { type: "api_key", key: azureKey };
+  }
+
+  return creds;
+}
+
 function resolvePiCredentials(agentDir: string): PiCredentialMap {
   const store = ensureAuthProfileStore(agentDir, { allowKeychainPrompt: false });
-  return resolvePiCredentialMapFromStore(store);
+  const profileCreds = resolvePiCredentialMapFromStore(store);
+  const envCreds = resolveEnvProviderCredentials();
+  // Profile credentials take precedence over env-detected ones
+  return { ...envCreds, ...profileCreds };
 }
 
 // Compatibility helpers for pi-coding-agent 0.50+ (discover* helpers removed).
@@ -148,5 +180,17 @@ export function discoverAuthStorage(agentDir: string): PiAuthStorage {
 }
 
 export function discoverModels(authStorage: PiAuthStorage, agentDir: string): PiModelRegistry {
-  return new PiModelRegistryClass(authStorage, path.join(agentDir, "models.json"));
+  const registry = new PiModelRegistryClass(authStorage, path.join(agentDir, "models.json"));
+  // Register DIP built-in providers (anthropic-vertex, etc.) if available
+  const registerBuiltins = (PiCodingAgent as Record<string, unknown>).registerBuiltinProviders as
+    | ((r: PiModelRegistry) => void)
+    | undefined;
+  if (typeof registerBuiltins === "function") {
+    try {
+      registerBuiltins(registry);
+    } catch {
+      // Silently ignore if not available
+    }
+  }
+  return registry;
 }

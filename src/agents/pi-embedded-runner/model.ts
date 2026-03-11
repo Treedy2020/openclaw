@@ -204,6 +204,43 @@ export function resolveModelWithRegistry(params: {
     });
   }
 
+  // DIP built-in providers: anthropic-vertex and azure-openai-responses are
+  // registered dynamically by pi-coding-agent and use custom API transports.
+  // Accept any model ID for these providers when env credentials are present.
+  if (normalizedProvider === "anthropic-vertex") {
+    return normalizeResolvedModel({
+      provider,
+      model: {
+        id: modelId,
+        name: modelId,
+        api: "anthropic-vertex" as Api,
+        provider,
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200000,
+        maxTokens: 128000,
+      } as Model<Api>,
+    });
+  }
+
+  if (normalizedProvider === "azure-openai-responses" || normalizedProvider === "azure-openai") {
+    return normalizeResolvedModel({
+      provider: "azure-openai-responses",
+      model: {
+        id: modelId,
+        name: modelId,
+        api: "azure-openai-responses" as Api,
+        provider: "azure-openai-responses",
+        reasoning: false,
+        input: ["text", "image"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: DEFAULT_CONTEXT_TOKENS,
+        maxTokens: 16384,
+      } as Model<Api>,
+    });
+  }
+
   const configuredModel = providerConfig?.models?.find((candidate) => candidate.id === modelId);
   const providerHeaders = sanitizeModelHeaders(providerConfig?.headers);
   const modelHeaders = sanitizeModelHeaders(configuredModel?.headers);

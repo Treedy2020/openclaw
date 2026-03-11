@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
+setGlobalDispatcher(new EnvHttpProxyAgent());
 import { spawn } from "node:child_process";
 import { enableCompileCache } from "node:module";
 import process from "node:process";

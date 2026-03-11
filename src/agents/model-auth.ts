@@ -296,13 +296,21 @@ export function resolveEnvApiKey(
     }
   }
 
-  if (normalized === "google-vertex") {
+  if (normalized === "google-vertex" || normalized === "anthropic-vertex") {
     const envKey = getEnvApiKey(normalized);
     if (!envKey) {
       return null;
     }
     return { apiKey: envKey, source: "gcloud adc" };
   }
+
+  if (normalized === "azure-openai-responses" || normalized === "azure-openai") {
+    const envKey = env.AZURE_OPENAI_API_KEY?.trim() || env.AZURE_OPENAI_KEY?.trim();
+    if (envKey) {
+      return { apiKey: envKey, source: "env: AZURE_OPENAI_API_KEY" };
+    }
+  }
+
   return null;
 }
 
