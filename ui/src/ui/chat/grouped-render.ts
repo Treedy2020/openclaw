@@ -12,7 +12,7 @@ import {
   formatReasoningMarkdown,
 } from "./message-extract.ts";
 import { isToolResultMessage, normalizeRoleForGrouping } from "./message-normalizer.ts";
-import { extractToolCards, renderToolCardSidebar } from "./tool-cards.ts";
+import { buildToolContextMeta, extractToolCards, renderToolCardSidebar } from "./tool-cards.ts";
 
 type ImageBlock = {
   url: string;
@@ -260,8 +260,33 @@ function renderGroupedMessage(
     .filter(Boolean)
     .join(" ");
 
+  const renderToolContextWindow = () => {
+    if (!hasToolCards) {
+      return nothing;
+    }
+    const meta = buildToolContextMeta(toolCards);
+    return html`
+      <details class="chat-tool-context ${meta.inFlight ? "chat-tool-context--active" : ""}" ?open=${meta.inFlight}>
+        <summary class="chat-tool-context__summary">
+          <span class="chat-tool-context__title">Tool context</span>
+          <span class="chat-tool-context__meta">${meta.results}/${meta.calls} completed</span>
+        </summary>
+        ${
+          meta.inFlight
+            ? html`
+                <div class="chat-tool-context__sheen" aria-hidden="true"></div>
+              `
+            : nothing
+        }
+        <div class="chat-tool-context__body">
+          ${toolCards.map((card) => renderToolCardSidebar(card, onOpenSidebar))}
+        </div>
+      </details>
+    `;
+  };
+
   if (!markdown && hasToolCards && isToolResult) {
-    return html`${toolCards.map((card) => renderToolCardSidebar(card, onOpenSidebar))}`;
+    return renderToolContextWindow();
   }
 
   if (!markdown && !hasToolCards && !hasImages) {
@@ -290,7 +315,7 @@ function renderGroupedMessage(
           ? html`<div class="chat-text" dir="${detectTextDirection(markdown)}">${unsafeHTML(toSanitizedMarkdownHtml(markdown))}</div>`
           : nothing
       }
-      ${toolCards.map((card) => renderToolCardSidebar(card, onOpenSidebar))}
+      ${renderToolContextWindow()}
     </div>
   `;
 }
