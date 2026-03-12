@@ -1,5 +1,8 @@
 export type ThemeMode = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
+export type SkinMode = "default" | "apple";
+
+export const SKIN_ORDER: readonly SkinMode[] = ["default", "apple"];
 
 export function getSystemTheme(): ResolvedTheme {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {

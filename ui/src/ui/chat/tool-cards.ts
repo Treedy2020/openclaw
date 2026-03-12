@@ -7,6 +7,22 @@ import { extractTextCached } from "./message-extract.ts";
 import { isToolResultMessage } from "./message-normalizer.ts";
 import { formatToolOutputForSidebar, getTruncatedPreview } from "./tool-helpers.ts";
 
+export type ToolContextMeta = {
+  calls: number;
+  results: number;
+  inFlight: boolean;
+};
+
+export function buildToolContextMeta(cards: ToolCard[]): ToolContextMeta {
+  const calls = cards.filter((card) => card.kind === "call").length;
+  const results = cards.filter((card) => card.kind === "result").length;
+  return {
+    calls,
+    results,
+    inFlight: calls > results,
+  };
+}
+
 export function extractToolCards(message: unknown): ToolCard[] {
   const m = message as Record<string, unknown>;
   const content = normalizeContent(m.content);
@@ -52,6 +68,7 @@ export function renderToolCardSidebar(card: ToolCard, onOpenSidebar?: (content: 
   const display = resolveToolDisplay({ name: card.name, args: card.args });
   const detail = formatToolDetail(display);
   const hasText = Boolean(card.text?.trim());
+  const isCall = card.kind === "call";
 
   const canClick = Boolean(onOpenSidebar);
   const handleClick = canClick
@@ -96,19 +113,27 @@ export function renderToolCardSidebar(card: ToolCard, onOpenSidebar?: (content: 
           <span>${display.label}</span>
         </div>
         ${
-          canClick
+          canClick && hasText
             ? html`<span class="chat-tool-card__action">${hasText ? "View" : ""} ${icons.check}</span>`
-            : nothing
+            : isCall
+              ? html`
+                  <span class="chat-tool-card__action muted">Context pending</span>
+                `
+              : nothing
         }
         ${isEmpty && !canClick ? html`<span class="chat-tool-card__status">${icons.check}</span>` : nothing}
       </div>
       ${detail ? html`<div class="chat-tool-card__detail">${detail}</div>` : nothing}
       ${
-        isEmpty
+        isCall
           ? html`
-              <div class="chat-tool-card__status-text muted">Completed</div>
+              <div class="chat-tool-card__status-text muted">Awaiting tool output</div>
             `
-          : nothing
+          : isEmpty
+            ? html`
+                <div class="chat-tool-card__status-text muted">Completed</div>
+              `
+            : nothing
       }
       ${
         showCollapsed

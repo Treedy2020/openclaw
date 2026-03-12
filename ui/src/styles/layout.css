@@ -190,6 +190,19 @@
   height: 12px;
 }
 
+.topbar-status .skin-toggle {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+  gap: 6px;
+  background: var(--secondary);
+}
+
+.topbar-status .skin-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* ===========================================
    Navigation Sidebar
    =========================================== */

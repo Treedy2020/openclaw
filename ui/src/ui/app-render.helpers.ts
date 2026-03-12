@@ -9,7 +9,7 @@ import { ChatState, loadChatHistory } from "./controllers/chat.ts";
 import { icons } from "./icons.ts";
 import { iconForTab, pathForTab, titleForTab, type Tab } from "./navigation.ts";
 import type { ThemeTransitionContext } from "./theme-transition.ts";
-import type { ThemeMode } from "./theme.ts";
+import { SKIN_ORDER, type SkinMode, type ThemeMode } from "./theme.ts";
 import type { SessionsListResult } from "./types.ts";
 
 type SessionDefaultsSnapshot = {
@@ -570,5 +570,32 @@ function renderMonitorIcon() {
       <line x1="8" x2="16" y1="21" y2="21"></line>
       <line x1="12" x2="12" y1="17" y2="21"></line>
     </svg>
+  `;
+}
+
+function nextSkin(current: SkinMode): SkinMode {
+  const index = SKIN_ORDER.indexOf(current);
+  if (index < 0) {
+    return SKIN_ORDER[0];
+  }
+  return SKIN_ORDER[(index + 1) % SKIN_ORDER.length] ?? SKIN_ORDER[0];
+}
+
+function skinLabel(skin: SkinMode): string {
+  return skin === "apple" ? "Apple" : "Default";
+}
+
+export function renderSkinToggle(state: AppViewState) {
+  return html`
+    <button
+      class="btn btn--sm skin-toggle"
+      type="button"
+      @click=${() => state.setSkin(nextSkin(state.skin))}
+      title="Switch UI skin"
+      aria-label="Switch UI skin"
+    >
+      ${icons.settings}
+      <span>${skinLabel(state.skin)}</span>
+    </button>
   `;
 }

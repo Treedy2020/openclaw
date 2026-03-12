@@ -6,7 +6,7 @@ type PersistedUiSettings = Omit<UiSettings, "token"> & { token?: never };
 
 import { isSupportedLocale } from "../i18n/index.ts";
 import { inferBasePathFromPathname, normalizeBasePath } from "./navigation.ts";
-import type { ThemeMode } from "./theme.ts";
+import type { SkinMode, ThemeMode } from "./theme.ts";
 
 export type UiSettings = {
   gatewayUrl: string;
@@ -14,6 +14,7 @@ export type UiSettings = {
   sessionKey: string;
   lastActiveSessionKey: string;
   theme: ThemeMode;
+  skin?: SkinMode;
   chatFocusMode: boolean;
   chatShowThinking: boolean;
   splitRatio: number; // Sidebar split ratio (0.4 to 0.7, default 0.6)
@@ -107,6 +108,7 @@ export function loadSettings(): UiSettings {
     sessionKey: "main",
     lastActiveSessionKey: "main",
     theme: "system",
+    skin: "default",
     chatFocusMode: false,
     chatShowThinking: true,
     splitRatio: 0.6,
@@ -144,6 +146,7 @@ export function loadSettings(): UiSettings {
         parsed.theme === "light" || parsed.theme === "dark" || parsed.theme === "system"
           ? parsed.theme
           : defaults.theme,
+      skin: parsed.skin === "apple" || parsed.skin === "default" ? parsed.skin : defaults.skin,
       chatFocusMode:
         typeof parsed.chatFocusMode === "boolean" ? parsed.chatFocusMode : defaults.chatFocusMode,
       chatShowThinking:
@@ -184,6 +187,7 @@ function persistSettings(next: UiSettings) {
     sessionKey: next.sessionKey,
     lastActiveSessionKey: next.lastActiveSessionKey,
     theme: next.theme,
+    ...(next.skin && next.skin !== "default" ? { skin: next.skin } : {}),
     chatFocusMode: next.chatFocusMode,
     chatShowThinking: next.chatShowThinking,
     splitRatio: next.splitRatio,

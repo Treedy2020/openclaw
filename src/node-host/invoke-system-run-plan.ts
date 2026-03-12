@@ -33,15 +33,6 @@ const MUTABLE_ARGV1_INTERPRETER_PATTERNS = [
   /^ruby$/,
 ] as const;
 
-const GENERIC_MUTABLE_SCRIPT_RUNNERS = new Set([
-  "esno",
-  "jiti",
-  "ts-node",
-  "ts-node-esm",
-  "tsx",
-  "vite-node",
-]);
-
 const BUN_SUBCOMMANDS = new Set([
   "add",
   "audit",
@@ -418,10 +409,6 @@ function resolveDenoRunScriptOperandIndex(params: {
   });
 }
 
-function isMutableScriptRunner(executable: string): boolean {
-  return GENERIC_MUTABLE_SCRIPT_RUNNERS.has(executable) || isInterpreterLikeSafeBin(executable);
-}
-
 function resolveMutableFileOperandIndex(argv: string[], cwd: string | undefined): number | null {
   const unwrapped = unwrapArgvForMutableOperand(argv);
   const executable = normalizeExecutableToken(unwrapped.argv[0] ?? "");
@@ -456,7 +443,7 @@ function resolveMutableFileOperandIndex(argv: string[], cwd: string | undefined)
       return unwrapped.baseIndex + denoIndex;
     }
   }
-  if (!isMutableScriptRunner(executable)) {
+  if (!isInterpreterLikeSafeBin(executable)) {
     return null;
   }
   const genericIndex = resolveGenericInterpreterScriptOperandIndex({
@@ -481,10 +468,10 @@ function requiresStableInterpreterApprovalBindingWithShellCommand(params: {
   if ((POSIX_SHELL_WRAPPERS as ReadonlySet<string>).has(executable)) {
     return false;
   }
-  return isMutableScriptRunner(executable);
+  return isInterpreterLikeSafeBin(executable);
 }
 
-export function resolveMutableFileOperandSnapshotSync(params: {
+function resolveMutableFileOperandSnapshotSync(params: {
   argv: string[];
   cwd: string | undefined;
   shellCommand: string | null;

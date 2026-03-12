@@ -5,14 +5,14 @@ import { toSanitizedMarkdownHtml } from "../markdown.ts";
 import { openExternalUrlSafe } from "../open-external-url.ts";
 import { detectTextDirection } from "../text-direction.ts";
 import type { MessageGroup } from "../types/chat-types.ts";
-import { renderCopyAsMarkdownButton } from "./copy-as-markdown.ts";
+import { renderCopyAsMarkdownButton, renderCopyMessageButton } from "./copy-as-markdown.ts";
 import {
   extractTextCached,
   extractThinkingCached,
   formatReasoningMarkdown,
 } from "./message-extract.ts";
 import { isToolResultMessage, normalizeRoleForGrouping } from "./message-normalizer.ts";
-import { extractToolCards, renderToolCardSidebar } from "./tool-cards.ts";
+import { buildToolContextMeta, extractToolCards, renderToolCardSidebar } from "./tool-cards.ts";
 
 type ImageBlock = {
   url: string;
@@ -247,19 +247,46 @@ function renderGroupedMessage(
   const markdownBase = extractedText?.trim() ? extractedText : null;
   const reasoningMarkdown = extractedThinking ? formatReasoningMarkdown(extractedThinking) : null;
   const markdown = markdownBase;
-  const canCopyMarkdown = role === "assistant" && Boolean(markdown?.trim());
+  const copyText = markdown?.trim() ? markdown : null;
+  const canCopyMessage = Boolean(copyText);
+  const shouldUseMarkdownCopyLabel = role === "assistant" && canCopyMessage;
 
   const bubbleClasses = [
     "chat-bubble",
-    canCopyMarkdown ? "has-copy" : "",
+    canCopyMessage ? "has-copy" : "",
     opts.isStreaming ? "streaming" : "",
     "fade-in",
   ]
     .filter(Boolean)
     .join(" ");
 
+  const renderToolContextWindow = () => {
+    if (!hasToolCards) {
+      return nothing;
+    }
+    const meta = buildToolContextMeta(toolCards);
+    return html`
+      <details class="chat-tool-context ${meta.inFlight ? "chat-tool-context--active" : ""}" ?open=${meta.inFlight}>
+        <summary class="chat-tool-context__summary">
+          <span class="chat-tool-context__title">Tool context</span>
+          <span class="chat-tool-context__meta">${meta.results}/${meta.calls} completed</span>
+        </summary>
+        ${
+          meta.inFlight
+            ? html`
+                <div class="chat-tool-context__sheen" aria-hidden="true"></div>
+              `
+            : nothing
+        }
+        <div class="chat-tool-context__body">
+          ${toolCards.map((card) => renderToolCardSidebar(card, onOpenSidebar))}
+        </div>
+      </details>
+    `;
+  };
+
   if (!markdown && hasToolCards && isToolResult) {
-    return html`${toolCards.map((card) => renderToolCardSidebar(card, onOpenSidebar))}`;
+    return renderToolContextWindow();
   }
 
   if (!markdown && !hasToolCards && !hasImages) {
@@ -268,7 +295,13 @@ function renderGroupedMessage(
 
   return html`
     <div class="${bubbleClasses}">
-      ${canCopyMarkdown ? renderCopyAsMarkdownButton(markdown!) : nothing}
+      ${
+        canCopyMessage
+          ? shouldUseMarkdownCopyLabel
+            ? renderCopyAsMarkdownButton(copyText!)
+            : renderCopyMessageButton(copyText!)
+          : nothing
+      }
       ${renderMessageImages(images)}
       ${
         reasoningMarkdown
@@ -282,7 +315,7 @@ function renderGroupedMessage(
           ? html`<div class="chat-text" dir="${detectTextDirection(markdown)}">${unsafeHTML(toSanitizedMarkdownHtml(markdown))}</div>`
           : nothing
       }
-      ${toolCards.map((card) => renderToolCardSidebar(card, onOpenSidebar))}
+      ${renderToolContextWindow()}
     </div>
   `;
 }

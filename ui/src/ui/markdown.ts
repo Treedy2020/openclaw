@@ -14,6 +14,8 @@ const allowedTags = [
   "h2",
   "h3",
   "h4",
+  "h5",
+  "h6",
   "hr",
   "i",
   "li",
@@ -29,9 +31,22 @@ const allowedTags = [
   "tr",
   "ul",
   "img",
+  "input",
 ];
 
-const allowedAttrs = ["class", "href", "rel", "target", "title", "start", "src", "alt"];
+const allowedAttrs = [
+  "class",
+  "href",
+  "rel",
+  "target",
+  "title",
+  "start",
+  "src",
+  "alt",
+  "type",
+  "checked",
+  "disabled",
+];
 const sanitizeOptions = {
   ALLOWED_TAGS: allowedTags,
   ALLOWED_ATTR: allowedAttrs,

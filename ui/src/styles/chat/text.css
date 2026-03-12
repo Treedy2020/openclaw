@@ -33,8 +33,54 @@
   margin-top: 0.75em;
 }
 
+.chat-text :where(h1, h2, h3, h4, h5, h6) {
+  margin: 0;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.chat-text :where(h1) {
+  font-size: 1.2em;
+}
+
+.chat-text :where(h2) {
+  font-size: 1.12em;
+}
+
+.chat-text :where(h3, h4) {
+  font-size: 1.04em;
+}
+
+.chat-text :where(h5, h6) {
+  font-size: 0.98em;
+  color: var(--muted-strong);
+}
+
+.chat-text :where(h1 + p, h2 + p, h3 + p, h4 + p, h5 + p, h6 + p) {
+  margin-top: 0.55em;
+}
+
+.chat-text :where(p + h1, p + h2, p + h3, p + h4, p + h5, p + h6) {
+  margin-top: 1em;
+}
+
 .chat-text :where(ul, ol) {
   padding-left: 1.5em;
+}
+
+.chat-text :where(ul.contains-task-list, ol.contains-task-list) {
+  list-style: none;
+  padding-left: 0;
+}
+
+.chat-text :where(.task-list-item) {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+
+.chat-text :where(.task-list-item input[type="checkbox"]) {
+  margin-top: 0.28em;
 }
 
 .chat-text :where(li + li) {
@@ -74,6 +120,13 @@
 .chat-text :where(pre code) {
   background: none;
   padding: 0;
+}
+
+.chat-text :where(img) {
+  display: block;
+  max-width: min(100%, 480px);
+  border-radius: 8px;
+  margin: 0.4em 0;
 }
 
 .chat-text :where(blockquote) {

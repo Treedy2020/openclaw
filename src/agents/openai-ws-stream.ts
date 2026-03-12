@@ -37,7 +37,6 @@ import {
   type ContentPart,
   type FunctionToolDefinition,
   type InputItem,
-  type OpenAIResponsesAssistantPhase,
   type OpenAIWebSocketManagerOptions,
   type ResponseObject,
 } from "./openai-ws-connection.js";
@@ -101,7 +100,6 @@ export function hasWsSession(sessionId: string): boolean {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AnyMessage = Message & { role: string; content: unknown };
-type AssistantMessageWithPhase = AssistantMessage & { phase?: OpenAIResponsesAssistantPhase };
 
 function toNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -109,10 +107,6 @@ function toNonEmptyString(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeAssistantPhase(value: unknown): OpenAIResponsesAssistantPhase | undefined {
-  return value === "commentary" || value === "final_answer" ? value : undefined;
 }
 
 /** Convert pi-ai content (string | ContentPart[]) to plain text. */
@@ -199,7 +193,6 @@ export function convertMessagesToInputItems(messages: Message[]): InputItem[] {
     }
 
     if (m.role === "assistant") {
-      const assistantPhase = normalizeAssistantPhase((m as { phase?: unknown }).phase);
       const content = m.content;
       if (Array.isArray(content)) {
         // Collect text blocks and tool calls separately
@@ -223,7 +216,6 @@ export function convertMessagesToInputItems(messages: Message[]): InputItem[] {
                 type: "message",
                 role: "assistant",
                 content: textParts.join(""),
-                ...(assistantPhase ? { phase: assistantPhase } : {}),
               });
               textParts.length = 0;
             }
@@ -249,7 +241,6 @@ export function convertMessagesToInputItems(messages: Message[]): InputItem[] {
             type: "message",
             role: "assistant",
             content: textParts.join(""),
-            ...(assistantPhase ? { phase: assistantPhase } : {}),
           });
         }
       } else {
@@ -259,7 +250,6 @@ export function convertMessagesToInputItems(messages: Message[]): InputItem[] {
             type: "message",
             role: "assistant",
             content: text,
-            ...(assistantPhase ? { phase: assistantPhase } : {}),
           });
         }
       }
@@ -299,14 +289,9 @@ export function buildAssistantMessageFromResponse(
   modelInfo: { api: string; provider: string; id: string },
 ): AssistantMessage {
   const content: (TextContent | ToolCall)[] = [];
-  let assistantPhase: OpenAIResponsesAssistantPhase | undefined;
 
   for (const item of response.output ?? []) {
     if (item.type === "message") {
-      const itemPhase = normalizeAssistantPhase(item.phase);
-      if (itemPhase) {
-        assistantPhase = itemPhase;
-      }
       for (const part of item.content ?? []) {
         if (part.type === "output_text" && part.text) {
           content.push({ type: "text", text: part.text });
@@ -336,7 +321,7 @@ export function buildAssistantMessageFromResponse(
   const hasToolCalls = content.some((c) => c.type === "toolCall");
   const stopReason: StopReason = hasToolCalls ? "toolUse" : "stop";
 
-  const message = buildAssistantMessage({
+  return buildAssistantMessage({
     model: modelInfo,
     content,
     stopReason,
@@ -346,10 +331,6 @@ export function buildAssistantMessageFromResponse(
       totalTokens: response.usage?.total_tokens ?? 0,
     }),
   });
-
-  return assistantPhase
-    ? ({ ...message, phase: assistantPhase } as AssistantMessageWithPhase)
-    : message;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -624,9 +605,10 @@ export function createOpenAIWebSocketStreamFn(
         ...extraParams,
       };
       const nextPayload = await options?.onPayload?.(payload, model);
-      const requestPayload = (nextPayload ?? payload) as Parameters<
-        OpenAIWebSocketManager["send"]
-      >[0];
+      const requestPayload =
+        nextPayload && typeof nextPayload === "object"
+          ? (nextPayload as Parameters<OpenAIWebSocketManager["send"]>[0])
+          : (payload as Parameters<OpenAIWebSocketManager["send"]>[0]);
 
       try {
         session.manager.send(requestPayload);
