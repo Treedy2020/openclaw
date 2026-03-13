@@ -9,6 +9,7 @@ import {
 } from "../infra/control-ui-assets.js";
 import { isWithinDir } from "../infra/path-safety.js";
 import { openVerifiedFileSync } from "../infra/safe-open-sync.js";
+import { safeEqualSecret } from "../security/secret-equal.js";
 import { AVATAR_MAX_BYTES } from "../shared/avatar-policy.js";
 import { resolveRuntimeServiceVersion } from "../version.js";
 import { DEFAULT_ASSISTANT_IDENTITY, resolveAssistantIdentity } from "./assistant-identity.js";
@@ -33,6 +34,10 @@ import {
 const ROOT_PREFIX = "/";
 const CONTROL_UI_ASSETS_MISSING_MESSAGE =
   "Control UI assets not found. Build them with `pnpm ui:build` (auto-installs UI deps), or run `pnpm ui:dev` during development.";
+const CONTROL_UI_SIMPLE_KEY_QUERY_PARAM = "key";
+const CONTROL_UI_SIMPLE_KEY_HEADER = "x-openclaw-access-key";
+const CONTROL_UI_SIMPLE_KEY_COOKIE = "openclaw_ui_key";
+const CONTROL_UI_SIMPLE_KEY_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
 
 export type ControlUiRequestOptions = {
   basePath?: string;
@@ -124,6 +129,110 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
+function normalizeControlUiSimpleKey(config?: OpenClawConfig): string | null {
+  const value = config?.gateway?.controlUi?.simpleKey;
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function headerValue(value: string | string[] | undefined): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    const first = value[0];
+    if (typeof first === "string") {
+      const trimmed = first.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+  }
+  return null;
+}
+
+function parseCookieValue(rawCookieHeader: string | undefined, name: string): string | null {
+  if (!rawCookieHeader) {
+    return null;
+  }
+  const parts = rawCookieHeader.split(";");
+  for (const part of parts) {
+    const [rawKey, ...rest] = part.split("=");
+    if (!rawKey || rest.length === 0) {
+      continue;
+    }
+    if (rawKey.trim() !== name) {
+      continue;
+    }
+    const joined = rest.join("=").trim();
+    if (!joined) {
+      return null;
+    }
+    try {
+      const decoded = decodeURIComponent(joined);
+      return decoded.trim() || null;
+    } catch {
+      return joined.trim() || null;
+    }
+  }
+  return null;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function respondControlUiSimpleKeyRequired(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+) {
+  res.statusCode = 401;
+  res.setHeader("Cache-Control", "no-store");
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  const safePath = escapeHtml(pathname || "/");
+  res.end(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Access key required</title></head><body><main style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:460px;margin:10vh auto;padding:24px;border:1px solid #ddd;border-radius:12px"><h1 style="margin:0 0 8px;font-size:22px">Access key required</h1><p style="margin:0 0 14px;color:#555">Enter your Control UI key to continue.</p><form method="GET" action="${safePath}"><label for="control-ui-key" style="display:block;font-weight:600;margin-bottom:8px">Key</label><input id="control-ui-key" name="${CONTROL_UI_SIMPLE_KEY_QUERY_PARAM}" type="password" autocomplete="current-password" required style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:8px"><button type="submit" style="margin-top:12px;padding:10px 14px;border:0;border-radius:8px;background:#111;color:#fff;cursor:pointer">Continue</button></form><p style="margin:12px 0 0;color:#777;font-size:12px">Tip: you can also send header ${CONTROL_UI_SIMPLE_KEY_HEADER}.</p></main></body></html>`,
+  );
+}
+
+function authorizeControlUiSimpleKey(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  configuredKey: string;
+}): boolean {
+  const queryKey = params.url.searchParams.get(CONTROL_UI_SIMPLE_KEY_QUERY_PARAM)?.trim() ?? "";
+  const headerKey = headerValue(params.req.headers?.[CONTROL_UI_SIMPLE_KEY_HEADER]);
+  const cookieKey = parseCookieValue(
+    headerValue(params.req.headers?.cookie) ?? undefined,
+    CONTROL_UI_SIMPLE_KEY_COOKIE,
+  );
+  const candidate = queryKey || headerKey || cookieKey;
+  if (!candidate || !safeEqualSecret(candidate, params.configuredKey)) {
+    respondControlUiSimpleKeyRequired(params.req, params.res, params.url.pathname);
+    return false;
+  }
+  if (queryKey || headerKey) {
+    params.res.setHeader(
+      "Set-Cookie",
+      `${CONTROL_UI_SIMPLE_KEY_COOKIE}=${encodeURIComponent(params.configuredKey)}; Path=/; Max-Age=${CONTROL_UI_SIMPLE_KEY_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax`,
+    );
+  }
+  return true;
+}
+
 function respondControlUiAssetsUnavailable(
   res: ServerResponse,
   options?: { configuredRootPath?: string },
@@ -156,7 +265,11 @@ function isValidAgentId(agentId: string): boolean {
 export function handleControlUiAvatarRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  opts: { basePath?: string; resolveAvatar: (agentId: string) => ControlUiAvatarResolution },
+  opts: {
+    basePath?: string;
+    config?: OpenClawConfig;
+    resolveAvatar: (agentId: string) => ControlUiAvatarResolution;
+  },
 ): boolean {
   const urlRaw = req.url;
   if (!urlRaw) {
@@ -177,6 +290,18 @@ export function handleControlUiAvatarRequest(
   }
 
   applyControlUiSecurityHeaders(res);
+  const configuredSimpleKey = normalizeControlUiSimpleKey(opts.config);
+  if (
+    configuredSimpleKey &&
+    !authorizeControlUiSimpleKey({
+      req,
+      res,
+      url,
+      configuredKey: configuredSimpleKey,
+    })
+  ) {
+    return true;
+  }
 
   const agentIdParts = pathname.slice(pathWithBase.length).split("/").filter(Boolean);
   const agentId = agentIdParts[0] ?? "";
@@ -317,20 +442,29 @@ export function handleControlUiHttpRequest(
   if (route.kind === "not-control-ui") {
     return false;
   }
+  applyControlUiSecurityHeaders(res);
+  const configuredSimpleKey = normalizeControlUiSimpleKey(opts?.config);
+  if (
+    configuredSimpleKey &&
+    !authorizeControlUiSimpleKey({
+      req,
+      res,
+      url,
+      configuredKey: configuredSimpleKey,
+    })
+  ) {
+    return true;
+  }
   if (route.kind === "not-found") {
-    applyControlUiSecurityHeaders(res);
     respondControlUiNotFound(res);
     return true;
   }
   if (route.kind === "redirect") {
-    applyControlUiSecurityHeaders(res);
     res.statusCode = 302;
     res.setHeader("Location", route.location);
     res.end();
     return true;
   }
-
-  applyControlUiSecurityHeaders(res);
 
   const bootstrapConfigPath = basePath
     ? `${basePath}${CONTROL_UI_BOOTSTRAP_CONFIG_PATH}`

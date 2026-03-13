@@ -380,6 +380,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Optional URL prefix where the Control UI is served (e.g. /openclaw).",
   "gateway.controlUi.root":
     "Optional filesystem root for Control UI assets (defaults to dist/control-ui).",
+  "gateway.controlUi.simpleKey":
+    "Optional pre-shared key required before serving Control UI assets. Users can provide it via `?key=<value>` on the dashboard URL once, then continue with the session cookie.",
   "gateway.controlUi.allowedOrigins":
     "Allowed browser origins for Control UI/WebChat websocket connections (full origins only, e.g. https://control.example.com). Required for non-loopback Control UI deployments unless dangerous Host-header fallback is explicitly enabled.",
   "gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback":

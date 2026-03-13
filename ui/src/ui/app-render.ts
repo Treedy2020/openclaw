@@ -423,8 +423,14 @@ export function renderApp(state: AppViewState) {
           >
             <span class="nav-collapse-toggle__icon" aria-hidden="true">${icons.menu}</span>
           </button>
-          <div class="topnav-shell__content">
-            <dashboard-header .tab=${state.tab}></dashboard-header>
+          <div class="brand">
+            <div class="brand-logo">
+              <img src=${basePath ? `${basePath}/icon.jpeg` : "/icon.jpeg"} alt="小新" />
+            </div>
+            <div class="brand-text">
+              <div class="brand-title">小新</div>
+              <div class="brand-sub">家庭助手</div>
+            </div>
           </div>
           <div class="topnav-shell__actions">
             <button

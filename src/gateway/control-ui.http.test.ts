@@ -64,6 +64,7 @@ describe("handleControlUiHttpRequest", () => {
     method: "GET" | "HEAD";
     resolveAvatar: Parameters<typeof handleControlUiAvatarRequest>[2]["resolveAvatar"];
     basePath?: string;
+    config?: Parameters<typeof handleControlUiHttpRequest>[2]["config"];
   }) {
     const { res, end } = makeMockHttpResponse();
     const handled = handleControlUiAvatarRequest(
@@ -71,6 +72,7 @@ describe("handleControlUiHttpRequest", () => {
       res,
       {
         ...(params.basePath ? { basePath: params.basePath } : {}),
+        ...(params.config ? { config: params.config } : {}),
         resolveAvatar: params.resolveAvatar,
       },
     );
@@ -205,7 +207,51 @@ describe("handleControlUiHttpRequest", () => {
     });
   });
 
-  it("serves local avatar bytes through hardened avatar handler", async () => {
+  it("requires control UI simple key when configured", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const { res, end } = makeMockHttpResponse();
+        const handled = handleControlUiHttpRequest(
+          { url: "/", method: "GET" } as IncomingMessage,
+          res,
+          {
+            root: { kind: "resolved", path: tmp },
+            config: {
+              gateway: { controlUi: { simpleKey: "secret-key" } },
+            },
+          },
+        );
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(401);
+        expect(String(end.mock.calls[0]?.[0] ?? "")).toContain("Access key required");
+      },
+    });
+  });
+
+  it("accepts matching control UI simple key via query and sets a cookie", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const { res, end, setHeader } = makeMockHttpResponse();
+        const handled = handleControlUiHttpRequest(
+          { url: "/?key=secret-key", method: "GET" } as IncomingMessage,
+          res,
+          {
+            root: { kind: "resolved", path: tmp },
+            config: {
+              gateway: { controlUi: { simpleKey: "secret-key" } },
+            },
+          },
+        );
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(200);
+        const setCookie = setHeader.mock.calls.find((call) => call[0] === "Set-Cookie")?.[1];
+        expect(String(setCookie ?? "")).toContain("openclaw_ui_key=");
+        expect(String(end.mock.calls[0]?.[0] ?? "")).toContain("<html");
+      },
+    });
+  });
+
+  it("requires simple key before serving local avatar bytes", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-avatar-http-"));
     try {
       const avatarPath = path.join(tmp, "main.png");
@@ -214,6 +260,28 @@ describe("handleControlUiHttpRequest", () => {
       const { res, end, handled } = runAvatarRequest({
         url: "/avatar/main",
         method: "GET",
+        config: { gateway: { controlUi: { simpleKey: "secret-key" } } },
+        resolveAvatar: () => ({ kind: "local", filePath: avatarPath }),
+      });
+
+      expect(handled).toBe(true);
+      expect(res.statusCode).toBe(401);
+      expect(String(end.mock.calls[0]?.[0] ?? "")).toContain("Access key required");
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("serves local avatar bytes when simple key query is valid", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-avatar-http-auth-"));
+    try {
+      const avatarPath = path.join(tmp, "main.png");
+      await fs.writeFile(avatarPath, "avatar-bytes\n");
+
+      const { res, end, handled } = runAvatarRequest({
+        url: "/avatar/main?key=secret-key",
+        method: "GET",
+        config: { gateway: { controlUi: { simpleKey: "secret-key" } } },
         resolveAvatar: () => ({ kind: "local", filePath: avatarPath }),
       });
 

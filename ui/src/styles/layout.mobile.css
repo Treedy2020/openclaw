@@ -226,8 +226,11 @@
 
   /* Topbar */
   .topbar {
-    padding: 10px 12px;
+    padding: calc(10px + var(--safe-area-top)) calc(12px + var(--safe-area-right))
+      10px calc(12px + var(--safe-area-left));
     min-height: auto;
+    gap: 8px;
+    flex-direction: row;
   }
 
   .topnav-shell {
@@ -243,9 +246,13 @@
     align-items: stretch;
   }
 
-  .topnav-shell__content {
-    order: 3;
-    width: 100%;
+  .brand-logo {
+    width: 30px;
+    height: 30px;
+  }
+
+  .brand-title {
+    font-size: 14px;
   }
 
   .topbar-nav-toggle {
@@ -334,7 +341,8 @@
   }
 
   .content {
-    padding: 4px 4px 16px;
+    padding: 4px calc(4px + var(--safe-area-right)) calc(16px + var(--safe-area-bottom))
+      calc(4px + var(--safe-area-left));
     gap: 12px;
   }
 
@@ -528,20 +536,26 @@
   }
 
   .topbar {
-    padding: 8px 10px;
+    padding: calc(8px + var(--safe-area-top)) calc(10px + var(--safe-area-right))
+      8px calc(10px + var(--safe-area-left));
   }
 
   .brand-title {
     font-size: 13px;
   }
 
+  .brand-logo {
+    width: 28px;
+    height: 28px;
+  }
   .nav-item {
     padding: 6px 8px;
     font-size: 11px;
   }
 
   .content {
-    padding: 4px 4px 12px;
+    padding: 4px calc(4px + var(--safe-area-right)) calc(12px + var(--safe-area-bottom))
+      calc(4px + var(--safe-area-left));
     gap: 10px;
   }
 

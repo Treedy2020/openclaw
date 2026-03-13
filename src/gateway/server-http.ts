@@ -889,6 +889,7 @@ export function createGatewayHttpServer(opts: {
           run: () =>
             handleControlUiAvatarRequest(req, res, {
               basePath: controlUiBasePath,
+              config: configSnapshot,
               resolveAvatar: (agentId) => resolveAgentAvatar(configSnapshot, agentId),
             }),
         });

@@ -74,6 +74,7 @@ const FIELD_PLACEHOLDERS: Record<string, string> = {
   "gateway.remote.sshTarget": "user@host",
   "gateway.controlUi.basePath": "/openclaw",
   "gateway.controlUi.root": "dist/control-ui",
+  "gateway.controlUi.simpleKey": "replace-with-strong-ui-key",
   "gateway.controlUi.allowedOrigins": "https://control.example.com",
   "gateway.push.apns.relay.baseUrl": "https://relay.example.com",
   "channels.mattermost.baseUrl": "https://chat.example.com",
