@@ -185,9 +185,8 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-top: auto;
-  /* Push to bottom of flex container */
-  padding: 12px 4px 4px;
+  margin-top: auto; /* Push to bottom of flex container */
+  padding: 12px 4px calc(4px + var(--safe-area-bottom));
   background: linear-gradient(to bottom, transparent, var(--bg) 20%);
   z-index: 10;
 }
@@ -839,26 +838,35 @@
     min-width: 140px;
   }
 
-  .chat-compose {
-    grid-template-columns: 1fr;
-  }
-
-  /* Mobile: stack compose row vertically */
   .chat-compose__row {
     flex-direction: column;
     gap: 8px;
   }
 
-  /* Mobile: stack action buttons vertically */
+  .chat-compose {
+    gap: 8px;
+    padding-bottom: calc(8px + var(--safe-area-bottom));
+  }
+
+  .chat-compose .chat-compose__field textarea {
+    min-height: 48px;
+    padding: 10px 12px;
+    font-size: 16px; /* Avoid iOS input zoom */
+  }
+
+  .chat-slash-suggestions {
+    max-height: 160px;
+  }
+
   .chat-compose__actions {
-    flex-direction: column;
+    flex-direction: row;
     width: 100%;
     gap: 8px;
   }
 
-  /* Mobile: full-width buttons */
   .chat-compose .chat-compose__actions .btn {
-    width: 100%;
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .chat-controls {
@@ -989,4 +997,14 @@
 .agent-chat__suggestion:hover {
   background: var(--panel-strong);
   border-color: var(--accent);
+}
+
+@media (max-width: 400px) {
+  .chat-compose__actions {
+    flex-direction: column;
+  }
+
+  .chat-compose .chat-compose__actions .btn {
+    width: 100%;
+  }
 }

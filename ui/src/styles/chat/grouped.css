@@ -478,3 +478,77 @@ img.chat-avatar {
 .chat-delete-confirm__yes:hover {
   background: #dc2626;
 }
+
+.chat-tool-context__sheen {
+  height: 2px;
+  margin: 0 10px 8px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 35%,
+    color-mix(in srgb, var(--accent) 36%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 22%, transparent) 65%,
+    transparent 100%
+  );
+  background-size: 180% 100%;
+  animation: tool-context-sheen 4.8s linear infinite;
+  opacity: 0.45;
+}
+
+.chat-tool-context--active {
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--border));
+}
+
+@keyframes tool-context-sheen {
+  from {
+    background-position-x: 160%;
+  }
+  to {
+    background-position-x: -140%;
+  }
+}
+
+@media (max-width: 640px) {
+  .chat-group {
+    gap: 8px;
+    margin-left: 0;
+    margin-right: 6px;
+    margin-bottom: 12px;
+  }
+
+  .chat-group-messages {
+    max-width: calc(100% - 42px);
+  }
+
+  .chat-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+
+  .chat-bubble {
+    padding: 8px 10px;
+  }
+
+  .chat-group-footer {
+    margin-top: 4px;
+    gap: 6px;
+  }
+
+  .chat-sender-name {
+    font-size: 11px;
+  }
+
+  .chat-group-timestamp {
+    font-size: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-tool-context__sheen {
+    animation: none;
+  }
+}

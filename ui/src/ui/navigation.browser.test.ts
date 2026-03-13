@@ -174,6 +174,7 @@ describe("control UI routing", () => {
     expect(chatMain).not.toBeNull();
     if (chatMain) {
       expect(getComputedStyle(chatMain).display).not.toBe("none");
+      expect(getComputedStyle(chatMain).minWidth).toBe("0px");
     }
 
     if (split) {
