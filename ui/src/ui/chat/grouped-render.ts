@@ -13,6 +13,7 @@ import {
   extractThinkingCached,
   formatReasoningMarkdown,
 } from "./message-extract.ts";
+import { extractStructuredMessageLinks } from "./message-links.ts";
 import { isToolResultMessage, normalizeRoleForGrouping } from "./message-normalizer.ts";
 import { isTtsSupported, speakText, stopTts, isTtsSpeaking } from "./speech.ts";
 import { extractToolCards, renderToolCardSidebar } from "./tool-cards.ts";
@@ -643,6 +644,8 @@ function renderGroupedMessage(
   const markdownBase = extractedText?.trim() ? extractedText : null;
   const reasoningMarkdown = extractedThinking ? formatReasoningMarkdown(extractedThinking) : null;
   const markdown = markdownBase;
+  const structuredLinks =
+    role === "assistant" && markdown ? extractStructuredMessageLinks(markdown) : [];
   const canCopyMarkdown = role === "assistant" && Boolean(markdown?.trim());
 
   // Detect pure-JSON messages and render as collapsible block
@@ -709,6 +712,28 @@ function renderGroupedMessage(
                       ? html`<div class="chat-text" dir="${detectTextDirection(markdown)}">${unsafeHTML(toSanitizedMarkdownHtml(markdown))}</div>`
                       : nothing
                 }
+                ${
+                  structuredLinks.length > 0
+                    ? html`
+                        <div class="chat-result-links" role="list" aria-label="Result links">
+                          ${structuredLinks.map(
+                            (link) => html`
+                              <button
+                                class="chat-result-link"
+                                type="button"
+                                role="listitem"
+                                title=${link.url}
+                                @click=${() => openExternalUrlSafe(link.url)}
+                              >
+                                <span class="chat-result-link__label">${link.label}</span>
+                                <span class="chat-result-link__meta">${link.meta}</span>
+                              </button>
+                            `,
+                          )}
+                        </div>
+                      `
+                    : nothing
+                }
                 ${hasToolCards ? renderCollapsedToolCards(toolCards, onOpenSidebar) : nothing}
               </div>
             </details>
@@ -734,6 +759,28 @@ function renderGroupedMessage(
                 : markdown
                   ? html`<div class="chat-text" dir="${detectTextDirection(markdown)}">${unsafeHTML(toSanitizedMarkdownHtml(markdown))}</div>`
                   : nothing
+            }
+            ${
+              structuredLinks.length > 0
+                ? html`
+                    <div class="chat-result-links" role="list" aria-label="Result links">
+                      ${structuredLinks.map(
+                        (link) => html`
+                          <button
+                            class="chat-result-link"
+                            type="button"
+                            role="listitem"
+                            title=${link.url}
+                            @click=${() => openExternalUrlSafe(link.url)}
+                          >
+                            <span class="chat-result-link__label">${link.label}</span>
+                            <span class="chat-result-link__meta">${link.meta}</span>
+                          </button>
+                        `,
+                      )}
+                    </div>
+                  `
+                : nothing
             }
             ${hasToolCards ? renderCollapsedToolCards(toolCards, onOpenSidebar) : nothing}
           `

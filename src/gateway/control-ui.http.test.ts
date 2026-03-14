@@ -3,7 +3,10 @@ import type { IncomingMessage } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CONTROL_UI_BOOTSTRAP_CONFIG_PATH } from "./control-ui-contract.js";
+import {
+  CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
+  CONTROL_UI_FILE_DOWNLOAD_PATH,
+} from "./control-ui-contract.js";
 import { handleControlUiAvatarRequest, handleControlUiHttpRequest } from "./control-ui.js";
 import { makeMockHttpResponse } from "./test-http-response.js";
 
@@ -46,6 +49,7 @@ describe("handleControlUiHttpRequest", () => {
     rootPath: string;
     basePath?: string;
     rootKind?: "resolved" | "bundled";
+    config?: Parameters<typeof handleControlUiHttpRequest>[2]["config"];
   }) {
     const { res, end } = makeMockHttpResponse();
     const handled = handleControlUiHttpRequest(
@@ -53,6 +57,7 @@ describe("handleControlUiHttpRequest", () => {
       res,
       {
         ...(params.basePath ? { basePath: params.basePath } : {}),
+        ...(params.config ? { config: params.config } : {}),
         root: { kind: params.rootKind ?? "resolved", path: params.rootPath },
       },
     );
@@ -247,6 +252,93 @@ describe("handleControlUiHttpRequest", () => {
         const setCookie = setHeader.mock.calls.find((call) => call[0] === "Set-Cookie")?.[1];
         expect(String(setCookie ?? "")).toContain("openclaw_ui_key=");
         expect(String(end.mock.calls[0]?.[0] ?? "")).toContain("<html");
+      },
+    });
+  });
+
+  it("blocks file download endpoint when simple key is not configured", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const targetFile = path.join(tmp, "artifact.txt");
+        await fs.writeFile(targetFile, "artifact\n");
+        const encodedPath = encodeURIComponent(targetFile);
+
+        const { res, end, handled } = runControlUiRequest({
+          url: `${CONTROL_UI_FILE_DOWNLOAD_PATH}?path=${encodedPath}`,
+          method: "GET",
+          rootPath: tmp,
+        });
+
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(403);
+        expect(String(end.mock.calls[0]?.[0] ?? "")).toContain("simpleKey");
+      },
+    });
+  });
+
+  it("returns 400 when file download path query is missing", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const { res, end, handled } = runControlUiRequest({
+          url: `${CONTROL_UI_FILE_DOWNLOAD_PATH}?key=secret-key`,
+          method: "GET",
+          rootPath: tmp,
+          config: { gateway: { controlUi: { simpleKey: "secret-key" } } },
+        });
+
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(400);
+        expect(String(end.mock.calls[0]?.[0] ?? "")).toContain("Missing query parameter: path");
+      },
+    });
+  });
+
+  it("serves file download headers for authenticated HEAD requests", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const targetFile = path.join(tmp, "artifact.txt");
+        await fs.writeFile(targetFile, "artifact\n");
+        const encodedPath = encodeURIComponent(targetFile);
+        const { res, end, setHeader } = makeMockHttpResponse();
+        const handled = handleControlUiHttpRequest(
+          {
+            url: `${CONTROL_UI_FILE_DOWNLOAD_PATH}?key=secret-key&path=${encodedPath}`,
+            method: "HEAD",
+          } as IncomingMessage,
+          res,
+          {
+            root: { kind: "resolved", path: tmp },
+            config: { gateway: { controlUi: { simpleKey: "secret-key" } } },
+          },
+        );
+
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(200);
+        expect(end.mock.calls[0]?.length ?? -1).toBe(0);
+        const disposition = setHeader.mock.calls.find(
+          (call) => call[0] === "Content-Disposition",
+        )?.[1];
+        expect(String(disposition ?? "")).toContain('attachment; filename="artifact.txt"');
+        const contentLength = setHeader.mock.calls.find(
+          (call) => call[0] === "Content-Length",
+        )?.[1];
+        expect(contentLength).toBe(String(Buffer.byteLength("artifact\n")));
+      },
+    });
+  });
+
+  it("returns 404 for missing file download targets", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const missingPath = encodeURIComponent(path.join(tmp, "missing.txt"));
+        const { res, end, handled } = runControlUiRequest({
+          url: `${CONTROL_UI_FILE_DOWNLOAD_PATH}?key=secret-key&path=${missingPath}`,
+          method: "GET",
+          rootPath: tmp,
+          config: { gateway: { controlUi: { simpleKey: "secret-key" } } },
+        });
+
+        expectNotFoundResponse({ handled, res, end });
       },
     });
   });

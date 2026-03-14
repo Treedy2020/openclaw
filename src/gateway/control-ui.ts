@@ -15,6 +15,7 @@ import { resolveRuntimeServiceVersion } from "../version.js";
 import { DEFAULT_ASSISTANT_IDENTITY, resolveAssistantIdentity } from "./assistant-identity.js";
 import {
   CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
+  CONTROL_UI_FILE_DOWNLOAD_PATH,
   type ControlUiBootstrapConfig,
 } from "./control-ui-contract.js";
 import { buildControlUiCspHeader } from "./control-ui-csp.js";
@@ -38,6 +39,7 @@ const CONTROL_UI_SIMPLE_KEY_QUERY_PARAM = "key";
 const CONTROL_UI_SIMPLE_KEY_HEADER = "x-openclaw-access-key";
 const CONTROL_UI_SIMPLE_KEY_COOKIE = "openclaw_ui_key";
 const CONTROL_UI_SIMPLE_KEY_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
+const CONTROL_UI_FILE_DOWNLOAD_QUERY_PARAM = "path";
 
 export type ControlUiRequestOptions = {
   basePath?: string;
@@ -136,6 +138,40 @@ function normalizeControlUiSimpleKey(config?: OpenClawConfig): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function buildAttachmentContentDisposition(fileName: string): string {
+  const fallback = fileName.replace(/["\\]/g, "_") || "download";
+  const encoded = encodeURIComponent(fileName || "download").replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
+function expandUserHomePath(filePath: string): string {
+  const trimmed = filePath.trim();
+  if (trimmed === "~" || trimmed === "~/") {
+    return process.env.HOME ?? trimmed;
+  }
+  if (trimmed.startsWith("~/")) {
+    const home = process.env.HOME;
+    if (home) {
+      return path.join(home, trimmed.slice(2));
+    }
+  }
+  return trimmed;
+}
+
+function resolveRequestedDownloadPath(rawPath: string): string | null {
+  const expanded = expandUserHomePath(rawPath);
+  if (!expanded || expanded.includes("\0")) {
+    return null;
+  }
+  if (path.isAbsolute(expanded)) {
+    return path.resolve(expanded);
+  }
+  return path.resolve(process.cwd(), expanded);
 }
 
 function headerValue(value: string | string[] | undefined): string | null {
@@ -421,6 +457,86 @@ function isSafeRelativePath(relPath: string) {
   return true;
 }
 
+function handleControlUiFileDownloadRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  basePath: string;
+  configuredSimpleKey: string | null;
+}): boolean {
+  const endpointPath = params.basePath
+    ? `${params.basePath}${CONTROL_UI_FILE_DOWNLOAD_PATH}`
+    : CONTROL_UI_FILE_DOWNLOAD_PATH;
+  if (params.url.pathname !== endpointPath) {
+    return false;
+  }
+
+  if (!params.configuredSimpleKey) {
+    respondPlainText(
+      params.res,
+      403,
+      "File download endpoint requires gateway.controlUi.simpleKey to be configured.",
+    );
+    return true;
+  }
+
+  const rawPath = params.url.searchParams.get(CONTROL_UI_FILE_DOWNLOAD_QUERY_PARAM)?.trim() ?? "";
+  if (!rawPath) {
+    respondPlainText(
+      params.res,
+      400,
+      `Missing query parameter: ${CONTROL_UI_FILE_DOWNLOAD_QUERY_PARAM}`,
+    );
+    return true;
+  }
+  const filePath = resolveRequestedDownloadPath(rawPath);
+  if (!filePath) {
+    respondControlUiNotFound(params.res);
+    return true;
+  }
+
+  const opened = openVerifiedFileSync({
+    filePath,
+    rejectPathSymlink: true,
+    allowedType: "file",
+  });
+  if (!opened.ok) {
+    if (opened.reason === "io") {
+      respondPlainText(params.res, 500, "Failed to read requested file.");
+      return true;
+    }
+    respondControlUiNotFound(params.res);
+    return true;
+  }
+
+  const contentDisposition = buildAttachmentContentDisposition(path.basename(opened.path));
+  params.res.statusCode = 200;
+  setStaticFileHeaders(params.res, opened.path);
+  params.res.setHeader("Content-Disposition", contentDisposition);
+  params.res.setHeader("Content-Length", String(opened.stat.size));
+  params.res.setHeader("Cache-Control", "no-store");
+
+  if (params.req.method === "HEAD") {
+    fs.closeSync(opened.fd);
+    params.res.end();
+    return true;
+  }
+
+  const stream = fs.createReadStream(opened.path, {
+    fd: opened.fd,
+    autoClose: true,
+  });
+  stream.on("error", () => {
+    if (!params.res.headersSent) {
+      respondPlainText(params.res, 500, "Failed while streaming file.");
+      return;
+    }
+    params.res.destroy();
+  });
+  stream.pipe(params.res);
+  return true;
+}
+
 export function handleControlUiHttpRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -451,6 +567,17 @@ export function handleControlUiHttpRequest(
       res,
       url,
       configuredKey: configuredSimpleKey,
+    })
+  ) {
+    return true;
+  }
+  if (
+    handleControlUiFileDownloadRequest({
+      req,
+      res,
+      url,
+      basePath,
+      configuredSimpleKey,
     })
   ) {
     return true;
