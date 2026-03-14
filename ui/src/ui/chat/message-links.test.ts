@@ -47,7 +47,7 @@ describe("extractStructuredMessageLinks", () => {
     expect(links.map((item) => item.url)).toEqual(["https://example.com/out.mp4"]);
   });
 
-  it("converts structured file paths into authenticated control-ui download links", () => {
+  it("converts structured file paths into authenticated control-ui file-open links", () => {
     const payload = [
       "```json",
       "{",
@@ -62,7 +62,7 @@ describe("extractStructuredMessageLinks", () => {
 
     expect(links).toHaveLength(1);
     expect(links[0]?.url).toBe(
-      "https://host/openclaw/__openclaw/files/download?path=%2Fsrv%2Fopenclaw%2Foutputs%2Ffinal%2Fvideo.mp4",
+      "https://host/openclaw/__openclaw/files/open?path=%2Fsrv%2Fopenclaw%2Foutputs%2Ffinal%2Fvideo.mp4",
     );
   });
 
@@ -70,7 +70,7 @@ describe("extractStructuredMessageLinks", () => {
     const text = 'done {"filePath":"~/results/report.pdf"}';
     const links = extractStructuredMessageLinks(text, { baseHref: "https://openclaw.ai/chat" });
     expect(links.map((item) => item.url)).toEqual([
-      "https://openclaw.ai/__openclaw/files/download?path=%7E%2Fresults%2Freport.pdf",
+      "https://openclaw.ai/__openclaw/files/open?path=%7E%2Fresults%2Freport.pdf",
     ]);
   });
 });

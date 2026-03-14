@@ -16,6 +16,7 @@ import { DEFAULT_ASSISTANT_IDENTITY, resolveAssistantIdentity } from "./assistan
 import {
   CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
   CONTROL_UI_FILE_DOWNLOAD_PATH,
+  CONTROL_UI_FILE_OPEN_PATH,
   type ControlUiBootstrapConfig,
 } from "./control-ui-contract.js";
 import { buildControlUiCspHeader } from "./control-ui-csp.js";
@@ -40,6 +41,8 @@ const CONTROL_UI_SIMPLE_KEY_HEADER = "x-openclaw-access-key";
 const CONTROL_UI_SIMPLE_KEY_COOKIE = "openclaw_ui_key";
 const CONTROL_UI_SIMPLE_KEY_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
 const CONTROL_UI_FILE_DOWNLOAD_QUERY_PARAM = "path";
+const CONTROL_UI_FILE_OPEN_QUERY_PARAM = "path";
+const CONTROL_UI_FILE_OPEN_LIST_MAX_ENTRIES = 1500;
 
 export type ControlUiRequestOptions = {
   basePath?: string;
@@ -163,7 +166,7 @@ function expandUserHomePath(filePath: string): string {
   return trimmed;
 }
 
-function resolveRequestedDownloadPath(rawPath: string): string | null {
+function resolveRequestedFileSystemPath(rawPath: string): string | null {
   const expanded = expandUserHomePath(rawPath);
   if (!expanded || expanded.includes("\0")) {
     return null;
@@ -172,6 +175,31 @@ function resolveRequestedDownloadPath(rawPath: string): string | null {
     return path.resolve(expanded);
   }
   return path.resolve(process.cwd(), expanded);
+}
+
+function resolveControlUiEndpointPath(basePath: string, endpointPath: string): string {
+  return basePath ? `${basePath}${endpointPath}` : endpointPath;
+}
+
+function buildControlUiOpenPathHref(params: {
+  basePath: string;
+  fileSystemPath: string;
+  includeLeadingSlash?: boolean;
+}): string {
+  const endpointPath = resolveControlUiEndpointPath(params.basePath, CONTROL_UI_FILE_OPEN_PATH);
+  const query = new URLSearchParams({ [CONTROL_UI_FILE_OPEN_QUERY_PARAM]: params.fileSystemPath });
+  return `${params.includeLeadingSlash === false ? endpointPath.replace(/^\//, "") : endpointPath}?${query.toString()}`;
+}
+
+function buildControlUiDownloadPathHref(params: {
+  basePath: string;
+  fileSystemPath: string;
+}): string {
+  const endpointPath = resolveControlUiEndpointPath(params.basePath, CONTROL_UI_FILE_DOWNLOAD_PATH);
+  const query = new URLSearchParams({
+    [CONTROL_UI_FILE_DOWNLOAD_QUERY_PARAM]: params.fileSystemPath,
+  });
+  return `${endpointPath}?${query.toString()}`;
 }
 
 function headerValue(value: string | string[] | undefined): string | null {
@@ -457,6 +485,266 @@ function isSafeRelativePath(relPath: string) {
   return true;
 }
 
+function setNoStoreHtmlHeaders(res: ServerResponse) {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+}
+
+function formatFileSize(size: number): string {
+  if (!Number.isFinite(size) || size < 0) {
+    return "—";
+  }
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = size / 1024;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const digits = value >= 10 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function formatIsoTimestamp(valueMs: number): string {
+  if (!Number.isFinite(valueMs)) {
+    return "—";
+  }
+  return new Date(valueMs).toISOString().replace(".000Z", "Z");
+}
+
+function respondWithOpenedFileDownload(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  opened: { path: string; fd: number; stat: fs.Stats };
+}): boolean {
+  const contentDisposition = buildAttachmentContentDisposition(path.basename(params.opened.path));
+  params.res.statusCode = 200;
+  setStaticFileHeaders(params.res, params.opened.path);
+  params.res.setHeader("Content-Disposition", contentDisposition);
+  params.res.setHeader("Content-Length", String(params.opened.stat.size));
+  params.res.setHeader("Cache-Control", "no-store");
+
+  if (params.req.method === "HEAD") {
+    fs.closeSync(params.opened.fd);
+    params.res.end();
+    return true;
+  }
+
+  const stream = fs.createReadStream(params.opened.path, {
+    fd: params.opened.fd,
+    autoClose: true,
+  });
+  stream.on("error", () => {
+    if (!params.res.headersSent) {
+      respondPlainText(params.res, 500, "Failed while streaming file.");
+      return;
+    }
+    params.res.destroy();
+  });
+  stream.pipe(params.res);
+  return true;
+}
+
+function renderControlUiDirectoryListingHtml(params: {
+  basePath: string;
+  currentPath: string;
+  parentPath: string | null;
+  entries: Array<{
+    name: string;
+    kind: "directory" | "file" | "other";
+    fullPath: string;
+    modifiedAtMs: number;
+    sizeBytes: number | null;
+  }>;
+  isTruncated: boolean;
+}) {
+  const currentPathEscaped = escapeHtml(params.currentPath);
+  const openEndpointHref = escapeHtml(
+    resolveControlUiEndpointPath(params.basePath, CONTROL_UI_FILE_OPEN_PATH),
+  );
+  const parentRow = params.parentPath
+    ? `<tr><td><a href="${escapeHtml(buildControlUiOpenPathHref({ basePath: params.basePath, fileSystemPath: params.parentPath }))}">..</a></td><td>directory</td><td>—</td><td>—</td></tr>`
+    : "";
+  const rows = params.entries
+    .map((entry) => {
+      const openHref = escapeHtml(
+        buildControlUiOpenPathHref({
+          basePath: params.basePath,
+          fileSystemPath: entry.fullPath,
+        }),
+      );
+      const downloadHref =
+        entry.kind === "file"
+          ? escapeHtml(
+              buildControlUiDownloadPathHref({
+                basePath: params.basePath,
+                fileSystemPath: entry.fullPath,
+              }),
+            )
+          : null;
+      const displayName = escapeHtml(entry.kind === "directory" ? `${entry.name}/` : entry.name);
+      const kind = entry.kind;
+      const size = entry.sizeBytes === null ? "—" : formatFileSize(entry.sizeBytes);
+      const modifiedAt = formatIsoTimestamp(entry.modifiedAtMs);
+      const actions = downloadHref ? `<a href="${downloadHref}">download</a>` : "open";
+      return `<tr><td><a href="${openHref}">${displayName}</a></td><td>${kind}</td><td>${escapeHtml(size)}</td><td>${escapeHtml(modifiedAt)} · ${actions}</td></tr>`;
+    })
+    .join("");
+  const bodyRows =
+    parentRow || rows
+      ? `${parentRow}${rows}`
+      : `<tr><td colspan="4" style="color:#667085">Directory is empty.</td></tr>`;
+  const truncationNote = params.isTruncated
+    ? `<p style="margin:8px 0 0;color:#996600;font-size:12px">Showing first ${CONTROL_UI_FILE_OPEN_LIST_MAX_ENTRIES} entries.</p>`
+    : "";
+
+  return [
+    "<!doctype html>",
+    '<html lang="en"><head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    "<title>OpenClaw Files</title>",
+    "<style>body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:20px;color:#0f172a;background:#f8fafc}main{max-width:1100px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px}h1{margin:0 0 10px;font-size:20px}form{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}input{flex:1 1 520px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}button{padding:8px 12px;border:0;border-radius:8px;background:#0f172a;color:#fff;cursor:pointer}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #e2e8f0}th{font-size:12px;color:#475569;text-transform:uppercase;letter-spacing:.04em}a{color:#0f5cc0;text-decoration:none}a:hover{text-decoration:underline}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#f1f5f9;padding:2px 6px;border-radius:6px}</style>",
+    "</head><body><main>",
+    "<h1>OpenClaw Files</h1>",
+    `<form method="GET" action="${openEndpointHref}">`,
+    `<input name="${CONTROL_UI_FILE_OPEN_QUERY_PARAM}" value="${currentPathEscaped}" spellcheck="false" />`,
+    '<button type="submit">Open</button>',
+    "</form>",
+    `<p style="margin:0 0 12px;font-size:12px;color:#475569">Current path: <code>${currentPathEscaped}</code></p>`,
+    "<table><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Updated · Action</th></tr></thead><tbody>",
+    bodyRows,
+    "</tbody></table>",
+    truncationNote,
+    "</main></body></html>",
+  ].join("");
+}
+
+function handleControlUiFileOpenRequest(params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  basePath: string;
+  configuredSimpleKey: string | null;
+}): boolean {
+  const endpointPath = resolveControlUiEndpointPath(params.basePath, CONTROL_UI_FILE_OPEN_PATH);
+  if (params.url.pathname !== endpointPath) {
+    return false;
+  }
+
+  if (!params.configuredSimpleKey) {
+    respondPlainText(
+      params.res,
+      403,
+      "File open endpoint requires gateway.controlUi.simpleKey to be configured.",
+    );
+    return true;
+  }
+
+  const requestedRawPath =
+    params.url.searchParams.get(CONTROL_UI_FILE_OPEN_QUERY_PARAM)?.trim() ||
+    process.env.HOME ||
+    process.cwd();
+  const requestedPath = resolveRequestedFileSystemPath(requestedRawPath);
+  if (!requestedPath) {
+    respondControlUiNotFound(params.res);
+    return true;
+  }
+
+  const openedFile = openVerifiedFileSync({
+    filePath: requestedPath,
+    rejectPathSymlink: true,
+    allowedType: "file",
+  });
+  if (openedFile.ok) {
+    return respondWithOpenedFileDownload({
+      req: params.req,
+      res: params.res,
+      opened: openedFile,
+    });
+  }
+  if (openedFile.reason === "io") {
+    respondPlainText(params.res, 500, "Failed to inspect requested path.");
+    return true;
+  }
+
+  const openedDirectory = openVerifiedFileSync({
+    filePath: requestedPath,
+    rejectPathSymlink: true,
+    allowedType: "directory",
+  });
+  if (!openedDirectory.ok) {
+    if (openedDirectory.reason === "io") {
+      respondPlainText(params.res, 500, "Failed to inspect requested path.");
+      return true;
+    }
+    respondControlUiNotFound(params.res);
+    return true;
+  }
+
+  fs.closeSync(openedDirectory.fd);
+  let entries: Array<{
+    name: string;
+    kind: "directory" | "file" | "other";
+    fullPath: string;
+    modifiedAtMs: number;
+    sizeBytes: number | null;
+  }> = [];
+  let isTruncated = false;
+  try {
+    const listed = fs.readdirSync(openedDirectory.path, { withFileTypes: true });
+    listed.sort((left, right) => {
+      const leftRank = left.isDirectory() ? 0 : 1;
+      const rightRank = right.isDirectory() ? 0 : 1;
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+      return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+    });
+    isTruncated = listed.length > CONTROL_UI_FILE_OPEN_LIST_MAX_ENTRIES;
+    entries = listed
+      .slice(0, CONTROL_UI_FILE_OPEN_LIST_MAX_ENTRIES)
+      .map((entry) => {
+        const fullPath = path.join(openedDirectory.path, entry.name);
+        const stat = fs.lstatSync(fullPath);
+        return {
+          name: entry.name,
+          kind: stat.isDirectory() ? "directory" : stat.isFile() ? "file" : "other",
+          fullPath,
+          modifiedAtMs: stat.mtimeMs,
+          sizeBytes: stat.isFile() ? stat.size : null,
+        };
+      })
+      .filter((entry) => entry.kind === "directory" || entry.kind === "file");
+  } catch {
+    respondPlainText(params.res, 500, "Failed to list requested directory.");
+    return true;
+  }
+
+  const parentPath = (() => {
+    const parent = path.dirname(openedDirectory.path);
+    return parent === openedDirectory.path ? null : parent;
+  })();
+  const html = renderControlUiDirectoryListingHtml({
+    basePath: params.basePath,
+    currentPath: openedDirectory.path,
+    parentPath,
+    entries,
+    isTruncated,
+  });
+  params.res.statusCode = 200;
+  setNoStoreHtmlHeaders(params.res);
+  if (params.req.method === "HEAD") {
+    params.res.end();
+    return true;
+  }
+  params.res.end(html);
+  return true;
+}
+
 function handleControlUiFileDownloadRequest(params: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -464,9 +752,7 @@ function handleControlUiFileDownloadRequest(params: {
   basePath: string;
   configuredSimpleKey: string | null;
 }): boolean {
-  const endpointPath = params.basePath
-    ? `${params.basePath}${CONTROL_UI_FILE_DOWNLOAD_PATH}`
-    : CONTROL_UI_FILE_DOWNLOAD_PATH;
+  const endpointPath = resolveControlUiEndpointPath(params.basePath, CONTROL_UI_FILE_DOWNLOAD_PATH);
   if (params.url.pathname !== endpointPath) {
     return false;
   }
@@ -489,7 +775,7 @@ function handleControlUiFileDownloadRequest(params: {
     );
     return true;
   }
-  const filePath = resolveRequestedDownloadPath(rawPath);
+  const filePath = resolveRequestedFileSystemPath(rawPath);
   if (!filePath) {
     respondControlUiNotFound(params.res);
     return true;
@@ -509,32 +795,11 @@ function handleControlUiFileDownloadRequest(params: {
     return true;
   }
 
-  const contentDisposition = buildAttachmentContentDisposition(path.basename(opened.path));
-  params.res.statusCode = 200;
-  setStaticFileHeaders(params.res, opened.path);
-  params.res.setHeader("Content-Disposition", contentDisposition);
-  params.res.setHeader("Content-Length", String(opened.stat.size));
-  params.res.setHeader("Cache-Control", "no-store");
-
-  if (params.req.method === "HEAD") {
-    fs.closeSync(opened.fd);
-    params.res.end();
-    return true;
-  }
-
-  const stream = fs.createReadStream(opened.path, {
-    fd: opened.fd,
-    autoClose: true,
+  return respondWithOpenedFileDownload({
+    req: params.req,
+    res: params.res,
+    opened,
   });
-  stream.on("error", () => {
-    if (!params.res.headersSent) {
-      respondPlainText(params.res, 500, "Failed while streaming file.");
-      return;
-    }
-    params.res.destroy();
-  });
-  stream.pipe(params.res);
-  return true;
 }
 
 export function handleControlUiHttpRequest(
@@ -567,6 +832,17 @@ export function handleControlUiHttpRequest(
       res,
       url,
       configuredKey: configuredSimpleKey,
+    })
+  ) {
+    return true;
+  }
+  if (
+    handleControlUiFileOpenRequest({
+      req,
+      res,
+      url,
+      basePath,
+      configuredSimpleKey,
     })
   ) {
     return true;

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
   CONTROL_UI_FILE_DOWNLOAD_PATH,
+  CONTROL_UI_FILE_OPEN_PATH,
 } from "./control-ui-contract.js";
 import { handleControlUiAvatarRequest, handleControlUiHttpRequest } from "./control-ui.js";
 import { makeMockHttpResponse } from "./test-http-response.js";
@@ -333,6 +334,95 @@ describe("handleControlUiHttpRequest", () => {
         const missingPath = encodeURIComponent(path.join(tmp, "missing.txt"));
         const { res, end, handled } = runControlUiRequest({
           url: `${CONTROL_UI_FILE_DOWNLOAD_PATH}?key=secret-key&path=${missingPath}`,
+          method: "GET",
+          rootPath: tmp,
+          config: { gateway: { controlUi: { simpleKey: "secret-key" } } },
+        });
+
+        expectNotFoundResponse({ handled, res, end });
+      },
+    });
+  });
+
+  it("blocks file open endpoint when simple key is not configured", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const encodedPath = encodeURIComponent(tmp);
+        const { res, end, handled } = runControlUiRequest({
+          url: `${CONTROL_UI_FILE_OPEN_PATH}?path=${encodedPath}`,
+          method: "GET",
+          rootPath: tmp,
+        });
+
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(403);
+        expect(String(end.mock.calls[0]?.[0] ?? "")).toContain("simpleKey");
+      },
+    });
+  });
+
+  it("serves authenticated directory listings from file open endpoint", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const outputDir = path.join(tmp, "outputs");
+        const outputFile = path.join(outputDir, "video.mp4");
+        await fs.mkdir(outputDir, { recursive: true });
+        await fs.writeFile(outputFile, "video\n");
+        const encodedPath = encodeURIComponent(outputDir);
+
+        const { res, end, handled } = runControlUiRequest({
+          url: `${CONTROL_UI_FILE_OPEN_PATH}?key=secret-key&path=${encodedPath}`,
+          method: "GET",
+          rootPath: tmp,
+          config: { gateway: { controlUi: { simpleKey: "secret-key" } } },
+        });
+
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(200);
+        const body = String(end.mock.calls[0]?.[0] ?? "");
+        expect(body).toContain("OpenClaw Files");
+        expect(body).toContain("video.mp4");
+        expect(body).toContain(CONTROL_UI_FILE_DOWNLOAD_PATH);
+      },
+    });
+  });
+
+  it("serves file download headers from file open endpoint when target is a file", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const targetFile = path.join(tmp, "artifact.bin");
+        await fs.writeFile(targetFile, "file-open\n");
+        const encodedPath = encodeURIComponent(targetFile);
+        const { res, end, setHeader } = makeMockHttpResponse();
+        const handled = handleControlUiHttpRequest(
+          {
+            url: `${CONTROL_UI_FILE_OPEN_PATH}?key=secret-key&path=${encodedPath}`,
+            method: "HEAD",
+          } as IncomingMessage,
+          res,
+          {
+            root: { kind: "resolved", path: tmp },
+            config: { gateway: { controlUi: { simpleKey: "secret-key" } } },
+          },
+        );
+
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(200);
+        expect(end.mock.calls[0]?.length ?? -1).toBe(0);
+        const disposition = setHeader.mock.calls.find(
+          (call) => call[0] === "Content-Disposition",
+        )?.[1];
+        expect(String(disposition ?? "")).toContain('attachment; filename="artifact.bin"');
+      },
+    });
+  });
+
+  it("returns 404 for missing file open targets", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const missingPath = encodeURIComponent(path.join(tmp, "missing-open"));
+        const { res, end, handled } = runControlUiRequest({
+          url: `${CONTROL_UI_FILE_OPEN_PATH}?key=secret-key&path=${missingPath}`,
           method: "GET",
           rootPath: tmp,
           config: { gateway: { controlUi: { simpleKey: "secret-key" } } },

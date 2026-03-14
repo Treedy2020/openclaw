@@ -1,4 +1,4 @@
-import { CONTROL_UI_FILE_DOWNLOAD_PATH } from "../../../../src/gateway/control-ui-contract.js";
+import { CONTROL_UI_FILE_OPEN_PATH } from "../../../../src/gateway/control-ui-contract.js";
 import { resolveSafeExternalUrl } from "../open-external-url.ts";
 
 export type StructuredMessageLink = {
@@ -63,8 +63,8 @@ function looksLikeFilesystemPath(value: string): boolean {
   );
 }
 
-function toControlUiDownloadUrl(filePath: string, baseHref: string): string {
-  const endpointRel = CONTROL_UI_FILE_DOWNLOAD_PATH.replace(/^\/+/, "");
+function toControlUiFileOpenUrl(filePath: string, baseHref: string): string {
+  const endpointRel = CONTROL_UI_FILE_OPEN_PATH.replace(/^\/+/, "");
   const endpoint = new URL(endpointRel, baseHref);
   endpoint.searchParams.set("path", filePath.trim());
   return endpoint.toString();
@@ -125,7 +125,7 @@ function collectLinksFromObject(
     }
     if (typeof nested === "string" && PATH_KEY_RE.test(key) && looksLikeFilesystemPath(nested)) {
       const label = key.toLowerCase() === "path" && contextCandidate ? contextCandidate : key;
-      pushLink(links, seen, toControlUiDownloadUrl(nested, baseHref), label, baseHref);
+      pushLink(links, seen, toControlUiFileOpenUrl(nested, baseHref), label, baseHref);
       continue;
     }
 
@@ -176,7 +176,7 @@ function collectKeyValueLinks(
       continue;
     }
     if (PATH_KEY_RE.test(key) && looksLikeFilesystemPath(decoded)) {
-      pushLink(links, seen, toControlUiDownloadUrl(decoded, baseHref), key, baseHref);
+      pushLink(links, seen, toControlUiFileOpenUrl(decoded, baseHref), key, baseHref);
     }
   }
 }
