@@ -23,6 +23,18 @@ type ImageBlock = {
   alt?: string;
 };
 
+function getDisplayUserLabel(rawLabel?: string | null): string {
+  const normalized = rawLabel?.trim();
+  if (!normalized) {
+    return "我";
+  }
+  // Keep gateway protocol id unchanged, but render a friendly brand label in UI.
+  if (normalized === "openclaw-control-ui") {
+    return "小崔夫妇";
+  }
+  return normalized;
+}
+
 function extractImages(message: unknown): ImageBlock[] {
   const m = message as Record<string, unknown>;
   const content = m.content;
@@ -86,7 +98,7 @@ export function renderStreamingGroup(
     hour: "numeric",
     minute: "2-digit",
   });
-  const name = assistant?.name ?? "Assistant";
+  const name = assistant?.name ?? "小新";
 
   return html`
     <div class="chat-group assistant">
@@ -123,11 +135,11 @@ export function renderMessageGroup(
   },
 ) {
   const normalizedRole = normalizeRoleForGrouping(group.role);
-  const assistantName = opts.assistantName ?? "Assistant";
-  const userLabel = group.senderLabel?.trim();
+  const assistantName = opts.assistantName ?? "小新";
+  const userLabel = getDisplayUserLabel(group.senderLabel);
   const who =
     normalizedRole === "user"
-      ? (userLabel ?? "You")
+      ? userLabel
       : normalizedRole === "assistant"
         ? assistantName
         : normalizedRole === "tool"
@@ -438,7 +450,7 @@ function renderAvatar(
   basePath?: string,
 ) {
   const normalized = normalizeRoleForGrouping(role);
-  const assistantName = assistant?.name?.trim() || "Assistant";
+  const assistantName = assistant?.name?.trim() || "小新";
   const assistantAvatar = assistant?.avatar?.trim() || "";
   const initial =
     normalized === "user"

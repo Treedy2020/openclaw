@@ -565,7 +565,7 @@ const WELCOME_SUGGESTIONS = [
 ];
 
 function renderWelcomeState(props: ChatProps): TemplateResult {
-  const name = props.assistantName || "Assistant";
+  const name = props.assistantName || "小新";
   const avatar = resolveAgentAvatarUrl({
     identity: {
       avatar: props.assistantAvatar ?? undefined,
@@ -670,7 +670,7 @@ function renderPinnedSection(
               ${entries.map(
                 ({ index, text, role }) => html`
                 <div class="agent-chat__pinned-item">
-                  <span class="agent-chat__pinned-role">${role === "user" ? "You" : "Assistant"}</span>
+                  <span class="agent-chat__pinned-role">${role === "user" ? "我" : "小新"}</span>
                   <span class="agent-chat__pinned-text">${text.slice(0, 100)}${text.length > 100 ? "..." : ""}</span>
                   <button class="btn-ghost" @click=${() => {
                     pinned.unpin(index);
