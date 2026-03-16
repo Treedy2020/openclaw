@@ -327,6 +327,25 @@ function resolveActiveSessionRow(state: AppViewState) {
   return state.sessionsResult?.sessions?.find((row) => row.key === state.sessionKey);
 }
 
+/**
+ * Return a fully-qualified `provider/model` string where possible, so the
+ * value sent to sessions.patch is never a bare model ID.  A bare ID is
+ * resolved by the server using the session's defaultProvider, which may be a
+ * different provider than the model belongs to (e.g. "openai-codex") and
+ * produce "model not allowed" errors.
+ */
+function qualifyModelValue(model: string, provider: string | null | undefined): string {
+  const m = model.trim();
+  const p = typeof provider === "string" ? provider.trim() : "";
+  if (!m) {
+    return "";
+  }
+  if (p && !m.toLowerCase().startsWith(`${p.toLowerCase()}/`)) {
+    return `${p}/${m}`;
+  }
+  return m;
+}
+
 function resolveModelOverrideValue(state: AppViewState): string {
   // Prefer the local cache — it reflects in-flight patches before sessionsResult refreshes.
   const cached = state.chatModelOverrides[state.sessionKey];
@@ -337,17 +356,28 @@ function resolveModelOverrideValue(state: AppViewState): string {
   if (cached === null) {
     return "";
   }
-  // No local override recorded yet — fall back to server data.
+  // No local override recorded yet — fall back to server data.  Qualify the
+  // bare model id with the provider so the picker value matches the
+  // provider-qualified catalog entries we build below.
   const activeRow = resolveActiveSessionRow(state);
   if (activeRow) {
-    return typeof activeRow.model === "string" ? activeRow.model.trim() : "";
+    const model = typeof activeRow.model === "string" ? activeRow.model.trim() : "";
+    if (!model) {
+      return "";
+    }
+    return qualifyModelValue(model, activeRow.modelProvider);
   }
   return "";
 }
 
 function resolveDefaultModelValue(state: AppViewState): string {
   const model = state.sessionsResult?.defaults?.model;
-  return typeof model === "string" ? model.trim() : "";
+  const provider = state.sessionsResult?.defaults?.modelProvider;
+  const modelStr = typeof model === "string" ? model.trim() : "";
+  if (!modelStr) {
+    return "";
+  }
+  return qualifyModelValue(modelStr, provider);
 }
 
 function buildChatModelOptions(
@@ -371,8 +401,17 @@ function buildChatModelOptions(
   };
 
   for (const entry of catalog) {
-    const provider = entry.provider?.trim();
-    addOption(entry.id, provider ? `${entry.id} · ${provider}` : entry.id);
+    const provider = entry.provider?.trim() ?? "";
+    const modelId = entry.id?.trim() ?? "";
+    if (!modelId) {
+      continue;
+    }
+    // Use a fully-qualified provider/model value so that sessions.patch always
+    // receives an unambiguous model reference.  Sending a bare model id causes
+    // the server to qualify it with the session's defaultProvider, which may
+    // differ from the model's actual provider and produce "model not allowed".
+    const value = qualifyModelValue(modelId, provider);
+    addOption(value, provider ? `${modelId} · ${provider}` : modelId);
   }
 
   if (currentOverride) {

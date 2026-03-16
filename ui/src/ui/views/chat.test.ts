@@ -22,11 +22,16 @@ function createSessions(): SessionsListResult {
 function createChatHeaderState(
   overrides: {
     model?: string | null;
+    modelProvider?: string | null;
     models?: ModelCatalogEntry[];
     omitSessionFromList?: boolean;
   } = {},
 ): { state: AppViewState; request: ReturnType<typeof vi.fn> } {
+  // currentModel/currentModelProvider track what the server would store after
+  // sessions.patch.  The server stores bare model + provider separately, so we
+  // strip a provider prefix from patched values to simulate server behavior.
   let currentModel = overrides.model ?? null;
+  let currentModelProvider = overrides.modelProvider ?? null;
   const omitSessionFromList = overrides.omitSessionFromList ?? false;
   const catalog = overrides.models ?? [
     { id: "gpt-5", name: "GPT-5", provider: "openai" },
@@ -34,7 +39,21 @@ function createChatHeaderState(
   ];
   const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
     if (method === "sessions.patch") {
-      currentModel = (params.model as string | null | undefined) ?? null;
+      const raw = (params.model as string | null | undefined) ?? null;
+      if (typeof raw === "string") {
+        // Simulate server parsing provider/model and storing separately.
+        const slash = raw.indexOf("/");
+        if (slash >= 0) {
+          currentModelProvider = raw.slice(0, slash);
+          currentModel = raw.slice(slash + 1);
+        } else {
+          currentModel = raw;
+          currentModelProvider = null;
+        }
+      } else {
+        currentModel = null;
+        currentModelProvider = null;
+      }
       return { ok: true, key: "main" };
     }
     if (method === "chat.history") {
@@ -45,10 +64,18 @@ function createChatHeaderState(
         ts: 0,
         path: "",
         count: omitSessionFromList ? 0 : 1,
-        defaults: { model: "gpt-5", contextTokens: null },
+        defaults: { model: "gpt-5", modelProvider: "openai", contextTokens: null },
         sessions: omitSessionFromList
           ? []
-          : [{ key: "main", kind: "direct", updatedAt: null, model: currentModel }],
+          : [
+              {
+                key: "main",
+                kind: "direct",
+                updatedAt: null,
+                model: currentModel,
+                modelProvider: currentModelProvider,
+              },
+            ],
       };
     }
     if (method === "models.list") {
@@ -64,10 +91,18 @@ function createChatHeaderState(
       ts: 0,
       path: "",
       count: omitSessionFromList ? 0 : 1,
-      defaults: { model: "gpt-5", contextTokens: null },
+      defaults: { model: "gpt-5", modelProvider: "openai", contextTokens: null },
       sessions: omitSessionFromList
         ? []
-        : [{ key: "main", kind: "direct", updatedAt: null, model: currentModel }],
+        : [
+            {
+              key: "main",
+              kind: "direct",
+              updatedAt: null,
+              model: currentModel,
+              modelProvider: currentModelProvider,
+            },
+          ],
     },
     chatModelOverrides: {},
     chatModelCatalog: catalog,
@@ -564,15 +599,17 @@ describe("chat view", () => {
     expect(modelSelect).not.toBeNull();
     expect(modelSelect?.value).toBe("");
 
-    modelSelect!.value = "gpt-5-mini";
+    // Catalog options now use fully-qualified provider/model values.
+    modelSelect!.value = "openai/gpt-5-mini";
     modelSelect!.dispatchEvent(new Event("change", { bubbles: true }));
     await flushTasks();
 
     expect(request).toHaveBeenCalledWith("sessions.patch", {
       key: "main",
-      model: "gpt-5-mini",
+      model: "openai/gpt-5-mini",
     });
     expect(request).not.toHaveBeenCalledWith("chat.history", expect.anything());
+    // Server strips the provider prefix and stores the bare model id.
     expect(state.sessionsResult?.sessions[0]?.model).toBe("gpt-5-mini");
     vi.unstubAllGlobals();
   });
@@ -584,7 +621,10 @@ describe("chat view", () => {
         ok: false,
       } satisfies Partial<Response>),
     );
-    const { state, request } = createChatHeaderState({ model: "gpt-5-mini" });
+    const { state, request } = createChatHeaderState({
+      model: "gpt-5-mini",
+      modelProvider: "openai",
+    });
     const container = document.createElement("div");
     render(renderChatSessionSelect(state), container);
 
@@ -592,7 +632,8 @@ describe("chat view", () => {
       'select[data-chat-model-select="true"]',
     );
     expect(modelSelect).not.toBeNull();
-    expect(modelSelect?.value).toBe("gpt-5-mini");
+    // Session has modelProvider so the override value is fully qualified.
+    expect(modelSelect?.value).toBe("openai/gpt-5-mini");
 
     modelSelect!.value = "";
     modelSelect!.dispatchEvent(new Event("change", { bubbles: true }));
@@ -636,7 +677,8 @@ describe("chat view", () => {
     );
     expect(modelSelect).not.toBeNull();
 
-    modelSelect!.value = "gpt-5-mini";
+    // Catalog options use fully-qualified values.
+    modelSelect!.value = "openai/gpt-5-mini";
     modelSelect!.dispatchEvent(new Event("change", { bubbles: true }));
     await flushTasks();
     render(renderChatSessionSelect(state), container);
@@ -644,7 +686,8 @@ describe("chat view", () => {
     const rerendered = container.querySelector<HTMLSelectElement>(
       'select[data-chat-model-select="true"]',
     );
-    expect(rerendered?.value).toBe("gpt-5-mini");
+    // After selection the local override cache holds the qualified value.
+    expect(rerendered?.value).toBe("openai/gpt-5-mini");
     vi.unstubAllGlobals();
   });
 });
