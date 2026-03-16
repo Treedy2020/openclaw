@@ -198,6 +198,21 @@
 ## Troubleshooting
 
 - Rebrand/migration issues or legacy config/service warnings: run `openclaw doctor` (see `docs/gateway/doctor.md`).
+- Treedy remote host quick facts (`root@123.57.221.111`):
+  - Active systemd unit: `openclaw-gateway.service`
+  - Common deploy workspace: `/root/openclaw-deploy-1773577015`
+  - Health check: `curl -sS http://127.0.0.1:18789/health` (expect `{"ok":true,"status":"live"}`)
+  - Listener check: `ss -ltnp | rg 18789`
+- Remote deploy playbook (when user asks "deploy remote"):
+  1. `ssh root@123.57.221.111`
+  2. `cd /root/openclaw-deploy-1773577015`
+  3. `git pull --rebase origin master`
+  4. `pnpm install --frozen-lockfile`
+  5. Always run `pnpm ui:build` (prevents `Control UI assets not found`)
+  6. Pack/install: `PKG=$(npm pack --ignore-scripts --silent | tail -n 1) && npm i -g "./$PKG"`
+  7. Restart: `systemctl restart openclaw-gateway`
+  8. Verify with health + listener checks above
+- Important: if repo-wide `pnpm build` fails because of unrelated upstream TypeScript errors, do not block a UI-only deploy; proceed with `pnpm ui:build` + `npm pack --ignore-scripts` + service restart.
 
 ## Agent-Specific Notes
 
