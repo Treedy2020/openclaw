@@ -213,6 +213,29 @@ describe("handleControlUiHttpRequest", () => {
     });
   });
 
+  it("keeps absolute static assistant avatar paths in bootstrap config", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const { res, end } = makeMockHttpResponse();
+        const handled = handleControlUiHttpRequest(
+          { url: `/openclaw${CONTROL_UI_BOOTSTRAP_CONFIG_PATH}`, method: "GET" } as IncomingMessage,
+          res,
+          {
+            basePath: "/openclaw",
+            root: { kind: "resolved", path: tmp },
+            config: {
+              agents: { defaults: { workspace: tmp } },
+              ui: { assistant: { name: "Ops", avatar: "/icon.jpeg" } },
+            },
+          },
+        );
+        expect(handled).toBe(true);
+        const parsed = parseBootstrapPayload(end);
+        expect(parsed.assistantAvatar).toBe("/openclaw/icon.jpeg");
+      },
+    });
+  });
+
   it("requires control UI simple key when configured", async () => {
     await withControlUiRoot({
       fn: async (tmp) => {

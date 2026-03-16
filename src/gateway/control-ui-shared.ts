@@ -49,6 +49,11 @@ export function resolveAssistantAvatarUrl(params: {
   const baseAvatarPrefix = basePath
     ? `${basePath}${CONTROL_UI_AVATAR_PREFIX}/`
     : `${CONTROL_UI_AVATAR_PREFIX}/`;
+  // Keep absolute static asset paths (e.g. "/icon.jpeg") as-is instead of proxying via /avatar/:id.
+  // This avoids broken assistant avatars when users intentionally point at bundled UI assets.
+  if (avatar.startsWith("/") && !avatar.startsWith(`${CONTROL_UI_AVATAR_PREFIX}/`)) {
+    return basePath ? `${basePath}${avatar}` : avatar;
+  }
   if (basePath && avatar.startsWith(`${CONTROL_UI_AVATAR_PREFIX}/`)) {
     return `${basePath}${avatar}`;
   }
