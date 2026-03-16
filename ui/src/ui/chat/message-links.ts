@@ -9,11 +9,35 @@ export type StructuredMessageLink = {
 
 const STRUCTURED_HINT_RE =
   /```(?:json|jsonc)?|"(?:[^"]*(?:url|href|link|path|file|record|directory|dir)[^"]*)"\s*:/i;
+const BARE_PATH_HINT_RE = /(?:~\/|(?:^|[\s([{"'`，；：])\/[^/\s<>"'`)\]}])/i;
 const URL_KEY_RE = /(url|href|link)$/i;
 const PATH_KEY_RE = /(path|file|record|directory|dir)$/i;
 const BARE_URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
+const BARE_POSIX_PATH_RE = /(?:^|[\s([{"'`，；：])((?:~\/|\/)[^\s<>"'`)\]}]+)/gi;
+const BARE_WINDOWS_PATH_RE = /(?:^|[\s([{"'`，；：])([a-z]:[\\/][^\s<>"'`)\]}]+)/gi;
 const JSON_CODE_BLOCK_RE = /```(?:json|jsonc)?\s*([\s\S]*?)```/gi;
 const DEFAULT_MAX_LINKS = 12;
+
+function pathDisplayName(rawPath: string): string {
+  const trimmed = rawPath.trim();
+  if (!trimmed) {
+    return "File";
+  }
+  const isDirHint = /[\\/]$/.test(trimmed);
+  const stripped = trimmed.replace(/[\\/]+$/g, "");
+  if (!stripped) {
+    return "/";
+  }
+  if (/^[a-z]:$/i.test(stripped)) {
+    return `${stripped}\\`;
+  }
+  const parts = stripped.split(/[\\/]/).filter(Boolean);
+  const tail = parts.at(-1) ?? stripped;
+  if (tail === "~") {
+    return "home/";
+  }
+  return isDirHint ? `${tail}/` : tail;
+}
 
 function normalizeLabel(raw: string): string {
   const trimmed = raw.trim();
@@ -21,7 +45,7 @@ function normalizeLabel(raw: string): string {
     return "Link";
   }
   if (trimmed.includes("/") || trimmed.includes("\\")) {
-    return trimmed;
+    return pathDisplayName(trimmed);
   }
   const cleaned = raw
     .replace(/\[\d+\]/g, "")
@@ -124,7 +148,7 @@ function collectLinksFromObject(
       continue;
     }
     if (typeof nested === "string" && PATH_KEY_RE.test(key) && looksLikeFilesystemPath(nested)) {
-      const label = key.toLowerCase() === "path" && contextCandidate ? contextCandidate : key;
+      const label = contextCandidate && contextCandidate !== key ? contextCandidate : nested;
       pushLink(links, seen, toControlUiFileOpenUrl(nested, baseHref), label, baseHref);
       continue;
     }
@@ -176,7 +200,7 @@ function collectKeyValueLinks(
       continue;
     }
     if (PATH_KEY_RE.test(key) && looksLikeFilesystemPath(decoded)) {
-      pushLink(links, seen, toControlUiFileOpenUrl(decoded, baseHref), key, baseHref);
+      pushLink(links, seen, toControlUiFileOpenUrl(decoded, baseHref), decoded, baseHref);
     }
   }
 }
@@ -195,12 +219,34 @@ function collectBareLinks(
   }
 }
 
+function collectBareFilesystemPaths(
+  text: string,
+  links: StructuredMessageLink[],
+  seen: Set<string>,
+  baseHref: string,
+) {
+  for (const match of text.matchAll(BARE_POSIX_PATH_RE)) {
+    const rawPath = match[1] ?? "";
+    if (!looksLikeFilesystemPath(rawPath)) {
+      continue;
+    }
+    pushLink(links, seen, toControlUiFileOpenUrl(rawPath, baseHref), rawPath, baseHref);
+  }
+  for (const match of text.matchAll(BARE_WINDOWS_PATH_RE)) {
+    const rawPath = match[1] ?? "";
+    if (!looksLikeFilesystemPath(rawPath)) {
+      continue;
+    }
+    pushLink(links, seen, toControlUiFileOpenUrl(rawPath, baseHref), rawPath, baseHref);
+  }
+}
+
 export function extractStructuredMessageLinks(
   text: string,
   opts: { baseHref?: string; maxLinks?: number } = {},
 ): StructuredMessageLink[] {
   const input = text.trim();
-  if (!input || !STRUCTURED_HINT_RE.test(input)) {
+  if (!input || (!STRUCTURED_HINT_RE.test(input) && !BARE_PATH_HINT_RE.test(input))) {
     return [];
   }
 
@@ -230,5 +276,10 @@ export function extractStructuredMessageLinks(
   }
 
   collectBareLinks(input, links, seen, baseHref);
+  if (links.length >= maxLinks) {
+    return links.slice(0, maxLinks);
+  }
+
+  collectBareFilesystemPaths(input, links, seen, baseHref);
   return links.slice(0, maxLinks);
 }

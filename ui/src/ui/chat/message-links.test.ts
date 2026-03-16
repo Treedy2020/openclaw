@@ -16,11 +16,7 @@ describe("extractStructuredMessageLinks", () => {
 
     const links = extractStructuredMessageLinks(payload, { baseHref: "https://openclaw.ai/chat" });
 
-    expect(links.map((item) => item.label)).toEqual([
-      "index Url",
-      "manifest Url",
-      "result/video.mp4",
-    ]);
+    expect(links.map((item) => item.label)).toEqual(["index Url", "manifest Url", "video.mp4"]);
     expect(links.map((item) => item.url)).toEqual([
       "https://example.com/share/_index.html",
       "https://example.com/share/_manifest.json",
@@ -72,5 +68,20 @@ describe("extractStructuredMessageLinks", () => {
     expect(links.map((item) => item.url)).toEqual([
       "https://openclaw.ai/__openclaw/files/open?path=%7E%2Fresults%2Freport.pdf",
     ]);
+    expect(links.map((item) => item.label)).toEqual(["report.pdf"]);
+  });
+
+  it("extracts bare filesystem paths from assistant text and renders filename labels", () => {
+    const text = [
+      "处理完成：",
+      "- 结果文件：/srv/openclaw/outputs/final/family-report.pdf",
+      "- 目录：~/openclaw/workspace/family-share/",
+    ].join("\n");
+    const links = extractStructuredMessageLinks(text, { baseHref: "https://host/openclaw/chat" });
+    expect(links.map((item) => item.url)).toEqual([
+      "https://host/openclaw/__openclaw/files/open?path=%2Fsrv%2Fopenclaw%2Foutputs%2Ffinal%2Ffamily-report.pdf",
+      "https://host/openclaw/__openclaw/files/open?path=%7E%2Fopenclaw%2Fworkspace%2Ffamily-share%2F",
+    ]);
+    expect(links.map((item) => item.label)).toEqual(["family-report.pdf", "family-share/"]);
   });
 });
