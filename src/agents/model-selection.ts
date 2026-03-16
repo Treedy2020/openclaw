@@ -633,8 +633,11 @@ export function resolveAllowedModelRef(params: {
       const catalogMatches = params.catalog.filter(
         (entry) => (entry.id ?? "").toLowerCase().trim() === bareId,
       );
-      if (catalogMatches.length === 1) {
-        const candidate = catalogMatches[0];
+      // Find catalog entries for this bare model id that are actually allowed.
+      // If exactly one is allowed, use it — even when the same model id exists
+      // under multiple providers (e.g. anthropic, google-antigravity, opencode).
+      const allowedMatches: Array<{ ref: ModelRef; key: string }> = [];
+      for (const candidate of catalogMatches) {
         const candidateRef: ModelRef = { provider: candidate.provider, model: candidate.id };
         const candidateStatus = getModelRefStatus({
           cfg: params.cfg,
@@ -644,8 +647,11 @@ export function resolveAllowedModelRef(params: {
           defaultModel: params.defaultModel,
         });
         if (candidateStatus.allowed) {
-          return { ref: candidateRef, key: candidateStatus.key };
+          allowedMatches.push({ ref: candidateRef, key: candidateStatus.key });
         }
+      }
+      if (allowedMatches.length === 1) {
+        return allowedMatches[0];
       }
     }
     return { error: `model not allowed: ${status.key}` };
