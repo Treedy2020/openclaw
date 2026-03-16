@@ -143,12 +143,39 @@ async function executeModel(
     }
   }
 
+  // Resolve the user-typed model name against the catalog so we always send a
+  // fully-qualified "provider/model" ref.  A bare id (e.g. "claude-sonnet-4-6")
+  // would be inferred by the server using the session's defaultProvider which
+  // may differ from the model's real provider and produce "model not allowed".
+  const raw = args.trim();
+  let qualified = raw;
   try {
-    await client.request("sessions.patch", { key: sessionKey, model: args.trim() });
+    if (!raw.includes("/")) {
+      const catalogResult = await client.request<{ models: ModelCatalogEntry[] }>(
+        "models.list",
+        {},
+      );
+      const catalog = catalogResult?.models ?? [];
+      const bareId = raw.toLowerCase();
+      const matches = catalog.filter(
+        (m: ModelCatalogEntry) => (m.id?.trim() ?? "").toLowerCase() === bareId,
+      );
+      if (matches.length === 1) {
+        const m = matches[0];
+        const p = m.provider?.trim() ?? "";
+        const id = m.id?.trim() ?? "";
+        qualified = p && !id.toLowerCase().startsWith(`${p.toLowerCase()}/`) ? `${p}/${id}` : id;
+      }
+    }
+  } catch {
+    // catalog fetch failed — fall through with raw value; server may still accept it
+  }
+  try {
+    await client.request("sessions.patch", { key: sessionKey, model: qualified });
     return {
-      content: `Model set to \`${args.trim()}\`.`,
+      content: `Model set to \`${qualified}\`.`,
       action: "refresh",
-      sessionPatch: { model: args.trim() },
+      sessionPatch: { model: qualified },
     };
   } catch (err) {
     return { content: `Failed to set model: ${String(err)}` };

@@ -346,6 +346,50 @@ function qualifyModelValue(model: string, provider: string | null | undefined): 
   return m;
 }
 
+/**
+ * Normalize a model ref string against the catalog.
+ *
+ * When the session stores a stale or wrong-provider ref (e.g. a past run wrote
+ * "openai-codex/claude-sonnet-4-6" but the model is actually "anthropic"),
+ * this returns the catalog's canonical fully-qualified value instead.
+ *
+ * Strategy:
+ *  1. Exact match on the qualified value → return as-is.
+ *  2. Bare model id (after stripping any provider prefix) has exactly ONE
+ *     catalog entry → use that entry's qualified value.
+ *  3. No match or ambiguous → return the original value unchanged so the
+ *     user can still see/clear the override rather than silently hiding it.
+ */
+function normalizeToCatalogRef(raw: string, catalog: ModelCatalogEntry[]): string {
+  if (!raw) {
+    return raw;
+  }
+  const lower = raw.toLowerCase();
+
+  // 1. Exact match — the ref is already a valid catalog entry.
+  for (const entry of catalog) {
+    const qualified = qualifyModelValue(entry.id?.trim() ?? "", entry.provider?.trim() ?? "");
+    if (qualified.toLowerCase() === lower) {
+      return qualified;
+    }
+  }
+
+  // 2. Extract bare model id and look for a unique catalog match.
+  const slashIdx = raw.indexOf("/");
+  const bareId = (slashIdx >= 0 ? raw.slice(slashIdx + 1) : raw).toLowerCase().trim();
+  if (!bareId) {
+    return raw;
+  }
+  const matches = catalog.filter((entry) => (entry.id?.trim() ?? "").toLowerCase() === bareId);
+  if (matches.length === 1) {
+    const m = matches[0];
+    return qualifyModelValue(m.id?.trim() ?? "", m.provider?.trim() ?? "");
+  }
+
+  // Ambiguous or not in catalog — leave unchanged.
+  return raw;
+}
+
 function resolveModelOverrideValue(state: AppViewState): string {
   // Prefer the local cache — it reflects in-flight patches before sessionsResult refreshes.
   const cached = state.chatModelOverrides[state.sessionKey];
@@ -414,11 +458,14 @@ function buildChatModelOptions(
     addOption(value, provider ? `${modelId} · ${provider}` : modelId);
   }
 
+  // Normalize fallback refs against the catalog so a stale wrong-provider
+  // value (e.g. "openai-codex/claude-sonnet-4-6" stored from an old run)
+  // is replaced with the catalog's canonical key before it can be re-sent.
   if (currentOverride) {
-    addOption(currentOverride);
+    addOption(normalizeToCatalogRef(currentOverride, catalog));
   }
   if (defaultModel) {
-    addOption(defaultModel);
+    addOption(normalizeToCatalogRef(defaultModel, catalog));
   }
   return options;
 }

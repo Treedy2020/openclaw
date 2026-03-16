@@ -623,6 +623,31 @@ export function resolveAllowedModelRef(params: {
     defaultModel: params.defaultModel,
   });
   if (!status.allowed) {
+    // Defense-in-depth: if the model ref is not allowed as-is, check whether
+    // the bare model id uniquely matches a catalog entry whose provider IS
+    // allowed.  This handles clients that send a bare "claude-sonnet-4-6"
+    // which was incorrectly qualified with a wrong defaultProvider (e.g.
+    // "openai-codex"), or sessions that stored the wrong runtime provider.
+    const bareId = resolved.ref.model.toLowerCase().trim();
+    if (bareId && resolved.ref.model === trimmed.slice(trimmed.lastIndexOf("/") + 1)) {
+      const catalogMatches = params.catalog.filter(
+        (entry) => (entry.id ?? "").toLowerCase().trim() === bareId,
+      );
+      if (catalogMatches.length === 1) {
+        const candidate = catalogMatches[0];
+        const candidateRef: ModelRef = { provider: candidate.provider, model: candidate.id };
+        const candidateStatus = getModelRefStatus({
+          cfg: params.cfg,
+          catalog: params.catalog,
+          ref: candidateRef,
+          defaultProvider: params.defaultProvider,
+          defaultModel: params.defaultModel,
+        });
+        if (candidateStatus.allowed) {
+          return { ref: candidateRef, key: candidateStatus.key };
+        }
+      }
+    }
     return { error: `model not allowed: ${status.key}` };
   }
 
