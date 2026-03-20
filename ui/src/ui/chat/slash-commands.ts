@@ -107,6 +107,14 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     executeLocal: true,
   },
   {
+    name: "memory",
+    description: "Write durable notes to long-term memory",
+    args: "<note>",
+    icon: "book",
+    category: "tools",
+    executeLocal: true,
+  },
+  {
     name: "status",
     description: "Show session status",
     icon: "barChart",

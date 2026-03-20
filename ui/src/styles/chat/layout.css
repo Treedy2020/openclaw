@@ -372,7 +372,8 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   flex-shrink: 0;
-  overflow: hidden;
+  /* Keep slash suggestions visible above the composer. */
+  overflow: visible;
   transition:
     border-color var(--duration-fast) ease,
     box-shadow var(--duration-fast) ease;
@@ -408,6 +409,57 @@
 
 .agent-chat__input > textarea::placeholder {
   color: var(--muted);
+}
+
+.agent-chat__slash-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin: 0 12px 6px;
+  border: 1px dashed color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 85%, var(--accent) 4%);
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.agent-chat__slash-hint:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  color: var(--text);
+}
+
+.agent-chat__slash-hint-prefix {
+  font-family: var(--mono);
+  color: var(--accent);
+}
+
+.agent-chat__slash-hint-count {
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  font-size: 0.68rem;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.agent-chat__slash-toolbar-btn-text {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.agent-chat__slash-toolbar-btn:hover .agent-chat__slash-toolbar-btn-text {
+  color: var(--accent-hover);
 }
 
 .agent-chat__toolbar {

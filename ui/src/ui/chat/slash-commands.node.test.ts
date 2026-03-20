@@ -39,4 +39,13 @@ describe("parseSlashCommand", () => {
       args: "",
     });
   });
+
+  it("supports /memory as a local helper command", () => {
+    const memory = SLASH_COMMANDS.find((entry) => entry.name === "memory");
+    expect(memory?.executeLocal).toBe(true);
+    expect(parseSlashCommand("/memory remember this")).toMatchObject({
+      command: { name: "memory" },
+      args: "remember this",
+    });
+  });
 });

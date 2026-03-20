@@ -74,6 +74,22 @@ function isChatResetCommand(text: string) {
   return normalized.startsWith("/new ") || normalized.startsWith("/reset ");
 }
 
+function buildMemoryInstruction(args: string): string | null {
+  const note = args.trim();
+  if (!note) {
+    return null;
+  }
+  return [
+    "Please persist the following as durable memory.",
+    "- Store long-term facts/preferences in MEMORY.md.",
+    "- Also append a short trace line to today's memory/YYYY-MM-DD.md.",
+    "- Keep the memory concise and deduplicated.",
+    "- Then reply with a short confirmation of what you stored.",
+    "",
+    `Memory note: ${note}`,
+  ].join("\n");
+}
+
 export async function handleAbortChat(host: ChatHost) {
   if (!host.connected) {
     return;
@@ -286,6 +302,22 @@ async function dispatchSlashCommand(
         restoreDraft: sendOpts?.restoreDraft,
       });
       return;
+    case "memory": {
+      const instruction = buildMemoryInstruction(args);
+      if (!instruction) {
+        injectCommandResult(
+          host,
+          "Usage: `/memory <note>`\n\nExample: `/memory 家庭周末采购在周六上午统一处理`",
+        );
+        scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
+        return;
+      }
+      await sendChatMessageNow(host, instruction, {
+        previousDraft: sendOpts?.previousDraft,
+        restoreDraft: sendOpts?.restoreDraft,
+      });
+      return;
+    }
     case "clear":
       await clearChatHistory(host);
       return;

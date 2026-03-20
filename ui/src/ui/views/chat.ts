@@ -427,6 +427,17 @@ function resetSlashMenuState(): void {
   vs.slashMenuItems = [];
 }
 
+function openSlashCommandPicker(props: ChatProps, requestUpdate: () => void): void {
+  props.onDraftChange("/");
+  vs.slashMenuMode = "command";
+  vs.slashMenuItems = getSlashCommandCompletions("");
+  vs.slashMenuOpen = vs.slashMenuItems.length > 0;
+  vs.slashMenuIndex = 0;
+  vs.slashMenuCommand = null;
+  vs.slashMenuArgItems = [];
+  requestUpdate();
+}
+
 function updateSlashMenu(value: string, requestUpdate: () => void): void {
   // Arg mode: /command <partial-arg>
   const argMatch = value.match(/^\/(\S+)\s(.*)$/);
@@ -1206,6 +1217,26 @@ export function renderChat(props: ChatProps) {
           rows="1"
         ></textarea>
 
+        ${
+          props.connected &&
+          !vs.sttRecording &&
+          !props.draft.trim() &&
+          (props.attachments?.length ?? 0) === 0
+            ? html`
+                <button
+                  type="button"
+                  class="agent-chat__slash-hint"
+                  @click=${() => openSlashCommandPicker(props, requestUpdate)}
+                  title="Show slash commands"
+                >
+                  <span class="agent-chat__slash-hint-prefix">/</span>
+                  <span class="agent-chat__slash-hint-text">Show commands</span>
+                  <span class="agent-chat__slash-hint-count">${SLASH_COMMANDS.length}</span>
+                </button>
+              `
+            : nothing
+        }
+
         <div class="agent-chat__toolbar">
           <div class="agent-chat__toolbar-left">
             <button
@@ -1278,6 +1309,15 @@ export function renderChat(props: ChatProps) {
 
           <div class="agent-chat__toolbar-right">
             ${nothing /* search hidden for now */}
+            <button
+              class="btn-ghost agent-chat__slash-toolbar-btn"
+              @click=${() => openSlashCommandPicker(props, requestUpdate)}
+              title="Show slash commands"
+              aria-label="Show slash commands"
+              ?disabled=${!props.connected}
+            >
+              <span class="agent-chat__slash-toolbar-btn-text">/</span>
+            </button>
             ${
               canAbort
                 ? nothing
