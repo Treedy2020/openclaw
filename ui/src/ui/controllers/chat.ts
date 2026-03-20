@@ -1,4 +1,5 @@
 import { resetToolStream } from "../app-tool-stream.ts";
+import { isImageChatAttachmentMimeType } from "../chat/attachment-support.ts";
 import { extractText } from "../chat/message-extract.ts";
 import { formatConnectError } from "../connect-error.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
@@ -171,13 +172,18 @@ export async function sendChatMessage(
   if (msg) {
     contentBlocks.push({ type: "text", text: msg });
   }
-  // Add image previews to the message for display
+  // Add attachment previews to the message for display.
   if (hasAttachments) {
     for (const att of attachments) {
-      contentBlocks.push({
-        type: "image",
-        source: { type: "base64", media_type: att.mimeType, data: att.dataUrl },
-      });
+      if (isImageChatAttachmentMimeType(att.mimeType)) {
+        contentBlocks.push({
+          type: "image",
+          source: { type: "base64", media_type: att.mimeType, data: att.dataUrl },
+        });
+        continue;
+      }
+      const fileLabel = att.fileName?.trim() || att.mimeType || "attachment";
+      contentBlocks.push({ type: "text", text: `[Attached file: ${fileLabel}]` });
     }
   }
 
@@ -206,8 +212,9 @@ export async function sendChatMessage(
             return null;
           }
           return {
-            type: "image",
+            type: isImageChatAttachmentMimeType(parsed.mimeType) ? "image" : "file",
             mimeType: parsed.mimeType,
+            fileName: att.fileName,
             content: parsed.content,
           };
         })

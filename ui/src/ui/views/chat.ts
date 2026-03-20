@@ -3,6 +3,7 @@ import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
 import {
   CHAT_ATTACHMENT_ACCEPT,
+  isImageChatAttachmentMimeType,
   isSupportedChatAttachmentMimeType,
 } from "../chat/attachment-support.ts";
 import { DeletedMessages } from "../chat/deleted-messages.ts";
@@ -81,6 +82,7 @@ export type ChatProps = {
   splitRatio?: number;
   assistantName: string;
   assistantAvatar: string | null;
+  availableSkills?: Array<{ name: string; description?: string }>;
   attachments?: ChatAttachment[];
   onAttachmentsChange?: (attachments: ChatAttachment[]) => void;
   showNewMessages?: boolean;
@@ -325,6 +327,7 @@ function handlePaste(e: ClipboardEvent, props: ChatProps) {
         id: generateAttachmentId(),
         dataUrl,
         mimeType: file.type,
+        fileName: file.name,
       };
       const current = props.attachments ?? [];
       props.onAttachmentsChange?.([...current, newAttachment]);
@@ -342,7 +345,7 @@ function handleFileSelect(e: Event, props: ChatProps) {
   const additions: ChatAttachment[] = [];
   let pending = 0;
   for (const file of input.files) {
-    if (!isSupportedChatAttachmentMimeType(file.type)) {
+    if (!isSupportedChatAttachmentMimeType(file.type, file.name)) {
       continue;
     }
     pending++;
@@ -352,6 +355,7 @@ function handleFileSelect(e: Event, props: ChatProps) {
         id: generateAttachmentId(),
         dataUrl: reader.result as string,
         mimeType: file.type,
+        fileName: file.name,
       });
       pending--;
       if (pending === 0) {
@@ -373,7 +377,7 @@ function handleDrop(e: DragEvent, props: ChatProps) {
   const additions: ChatAttachment[] = [];
   let pending = 0;
   for (const file of files) {
-    if (!isSupportedChatAttachmentMimeType(file.type)) {
+    if (!isSupportedChatAttachmentMimeType(file.type, file.name)) {
       continue;
     }
     pending++;
@@ -383,6 +387,7 @@ function handleDrop(e: DragEvent, props: ChatProps) {
         id: generateAttachmentId(),
         dataUrl: reader.result as string,
         mimeType: file.type,
+        fileName: file.name,
       });
       pending--;
       if (pending === 0) {
@@ -400,22 +405,33 @@ function renderAttachmentPreview(props: ChatProps): TemplateResult | typeof noth
   }
   return html`
     <div class="chat-attachments-preview">
-      ${attachments.map(
-        (att) => html`
-          <div class="chat-attachment-thumb">
-            <img src=${att.dataUrl} alt="Attachment preview" />
-            <button
-              class="chat-attachment-remove"
-              type="button"
-              aria-label="Remove attachment"
-              @click=${() => {
-                const next = (props.attachments ?? []).filter((a) => a.id !== att.id);
-                props.onAttachmentsChange?.(next);
-              }}
-            >&times;</button>
+      ${attachments.map((att) => {
+        const removeButton = html`
+          <button
+            class="chat-attachment-remove"
+            type="button"
+            aria-label="Remove attachment"
+            @click=${() => {
+              const next = (props.attachments ?? []).filter((a) => a.id !== att.id);
+              props.onAttachmentsChange?.(next);
+            }}
+          >&times;</button>
+        `;
+        if (isImageChatAttachmentMimeType(att.mimeType)) {
+          return html`
+            <div class="chat-attachment-thumb">
+              <img src=${att.dataUrl} alt="Attachment preview" />
+              ${removeButton}
+            </div>
+          `;
+        }
+        return html`
+          <div class="chat-attachment-thumb chat-attachment-thumb--file" title=${att.fileName ?? att.mimeType}>
+            <div class="chat-attachment-file">${icons.fileText} <span>${att.fileName ?? att.mimeType}</span></div>
+            ${removeButton}
           </div>
-        `,
-      )}
+        `;
+      })}
     </div>
   `;
 }
@@ -438,26 +454,76 @@ function openSlashCommandPicker(props: ChatProps, requestUpdate: () => void): vo
   requestUpdate();
 }
 
-function updateSlashMenu(value: string, requestUpdate: () => void): void {
+function getSkillArgOptions(props: ChatProps): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const entry of props.availableSkills ?? []) {
+    const name = entry.name.trim();
+    if (!name) {
+      continue;
+    }
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(name);
+  }
+  return unique.toSorted((a, b) => a.localeCompare(b));
+}
+
+function resolveSkillDescription(props: ChatProps, skillName: string): string | null {
+  const target = skillName.trim().toLowerCase();
+  if (!target) {
+    return null;
+  }
+  const match = (props.availableSkills ?? []).find(
+    (entry) => entry.name.trim().toLowerCase() === target,
+  );
+  const description = match?.description?.trim();
+  return description || null;
+}
+
+function getSlashArgOptions(cmd: SlashCommandDef, props: ChatProps): string[] {
+  if (cmd.argOptions?.length) {
+    return cmd.argOptions;
+  }
+  if (cmd.name === "skill") {
+    return getSkillArgOptions(props);
+  }
+  return [];
+}
+
+function getSlashCommandKind(cmd: SlashCommandDef): "local" | "agent" | "skill" {
+  if (cmd.name === "skill") {
+    return "skill";
+  }
+  return cmd.executeLocal ? "local" : "agent";
+}
+
+function updateSlashMenu(value: string, props: ChatProps, requestUpdate: () => void): void {
   // Arg mode: /command <partial-arg>
   const argMatch = value.match(/^\/(\S+)\s(.*)$/);
   if (argMatch) {
     const cmdName = argMatch[1].toLowerCase();
     const argFilter = argMatch[2].toLowerCase();
     const cmd = SLASH_COMMANDS.find((c) => c.name === cmdName);
-    if (cmd?.argOptions?.length) {
-      const filtered = argFilter
-        ? cmd.argOptions.filter((opt) => opt.toLowerCase().startsWith(argFilter))
-        : cmd.argOptions;
-      if (filtered.length > 0) {
-        vs.slashMenuMode = "args";
-        vs.slashMenuCommand = cmd;
-        vs.slashMenuArgItems = filtered;
-        vs.slashMenuOpen = true;
-        vs.slashMenuIndex = 0;
-        vs.slashMenuItems = [];
-        requestUpdate();
-        return;
+    if (cmd) {
+      const argOptions = getSlashArgOptions(cmd, props);
+      if (argOptions.length > 0) {
+        const filtered = argFilter
+          ? argOptions.filter((opt) => opt.toLowerCase().startsWith(argFilter))
+          : argOptions;
+        if (filtered.length > 0) {
+          vs.slashMenuMode = "args";
+          vs.slashMenuCommand = cmd;
+          vs.slashMenuArgItems = filtered;
+          vs.slashMenuOpen = true;
+          vs.slashMenuIndex = 0;
+          vs.slashMenuItems = [];
+          requestUpdate();
+          return;
+        }
       }
     }
     vs.slashMenuOpen = false;
@@ -488,12 +554,13 @@ function selectSlashCommand(
   props: ChatProps,
   requestUpdate: () => void,
 ): void {
-  // Transition to arg picker when the command has fixed options
-  if (cmd.argOptions?.length) {
+  const argOptions = getSlashArgOptions(cmd, props);
+  // Transition to arg picker when the command has fixed options.
+  if (argOptions.length > 0) {
     props.onDraftChange(`/${cmd.name} `);
     vs.slashMenuMode = "args";
     vs.slashMenuCommand = cmd;
-    vs.slashMenuArgItems = cmd.argOptions;
+    vs.slashMenuArgItems = argOptions;
     vs.slashMenuOpen = true;
     vs.slashMenuIndex = 0;
     vs.slashMenuItems = [];
@@ -519,12 +586,13 @@ function tabCompleteSlashCommand(
   props: ChatProps,
   requestUpdate: () => void,
 ): void {
-  // Tab: fill in the command text without executing
-  if (cmd.argOptions?.length) {
+  const argOptions = getSlashArgOptions(cmd, props);
+  // Tab: fill in the command text without executing.
+  if (argOptions.length > 0) {
     props.onDraftChange(`/${cmd.name} `);
     vs.slashMenuMode = "args";
     vs.slashMenuCommand = cmd;
-    vs.slashMenuArgItems = cmd.argOptions;
+    vs.slashMenuArgItems = argOptions;
     vs.slashMenuOpen = true;
     vs.slashMenuIndex = 0;
     vs.slashMenuItems = [];
@@ -714,10 +782,14 @@ function renderSlashMenu(
       <div class="slash-menu">
         <div class="slash-menu-group">
           <div class="slash-menu-group__label">/${vs.slashMenuCommand.name} ${vs.slashMenuCommand.description}</div>
-          ${vs.slashMenuArgItems.map(
-            (arg, i) => html`
+          ${vs.slashMenuArgItems.map((arg, i) => {
+            const isSkillArg = vs.slashMenuCommand?.name === "skill";
+            const detail = isSkillArg
+              ? (resolveSkillDescription(props, arg) ?? "Run this shared skill")
+              : `/${vs.slashMenuCommand?.name} ${arg}`;
+            return html`
               <div
-                class="slash-menu-item ${i === vs.slashMenuIndex ? "slash-menu-item--active" : ""}"
+                class="slash-menu-item ${isSkillArg ? "slash-menu-item--arg-skill" : ""} ${i === vs.slashMenuIndex ? "slash-menu-item--active" : ""}"
                 @click=${() => selectSlashArg(arg, props, requestUpdate, true)}
                 @mouseenter=${() => {
                   vs.slashMenuIndex = i;
@@ -726,10 +798,17 @@ function renderSlashMenu(
               >
                 ${vs.slashMenuCommand?.icon ? html`<span class="slash-menu-icon">${icons[vs.slashMenuCommand.icon]}</span>` : nothing}
                 <span class="slash-menu-name">${arg}</span>
-                <span class="slash-menu-desc">/${vs.slashMenuCommand?.name} ${arg}</span>
+                <span class="slash-menu-desc">${detail}</span>
+                ${
+                  isSkillArg
+                    ? html`
+                        <span class="slash-menu-kind slash-menu-kind--skill">skill</span>
+                      `
+                    : nothing
+                }
               </div>
-            `,
-          )}
+            `;
+          })}
         </div>
         <div class="slash-menu-footer">
           <kbd>↑↓</kbd> navigate
@@ -766,10 +845,13 @@ function renderSlashMenu(
     sections.push(html`
       <div class="slash-menu-group">
         <div class="slash-menu-group__label">${CATEGORY_LABELS[cat]}</div>
-        ${entries.map(
-          ({ cmd, globalIdx }) => html`
+        ${entries.map(({ cmd, globalIdx }) => {
+          const kind = getSlashCommandKind(cmd);
+          const kindLabel = kind === "skill" ? "skill" : kind === "local" ? "local" : "agent";
+          const argOptions = getSlashArgOptions(cmd, props);
+          return html`
             <div
-              class="slash-menu-item ${globalIdx === vs.slashMenuIndex ? "slash-menu-item--active" : ""}"
+              class="slash-menu-item slash-menu-item--kind-${kind} ${globalIdx === vs.slashMenuIndex ? "slash-menu-item--active" : ""}"
               @click=${() => selectSlashCommand(cmd, props, requestUpdate)}
               @mouseenter=${() => {
                 vs.slashMenuIndex = globalIdx;
@@ -780,9 +862,10 @@ function renderSlashMenu(
               <span class="slash-menu-name">/${cmd.name}</span>
               ${cmd.args ? html`<span class="slash-menu-args">${cmd.args}</span>` : nothing}
               <span class="slash-menu-desc">${cmd.description}</span>
+              <span class="slash-menu-kind slash-menu-kind--${kind}">${kindLabel}</span>
               ${
-                cmd.argOptions?.length
-                  ? html`<span class="slash-menu-badge">${cmd.argOptions.length} options</span>`
+                argOptions.length > 0
+                  ? html`<span class="slash-menu-badge">${argOptions.length} options</span>`
                   : cmd.executeLocal && !cmd.args
                     ? html`
                         <span class="slash-menu-badge">instant</span>
@@ -790,8 +873,8 @@ function renderSlashMenu(
                     : nothing
               }
             </div>
-          `,
-        )}
+          `;
+        })}
       </div>
     `);
   }
@@ -1074,7 +1157,7 @@ export function renderChat(props: ChatProps) {
   const handleInput = (e: Event) => {
     const target = e.target as HTMLTextAreaElement;
     adjustTextareaHeight(target);
-    updateSlashMenu(target.value, requestUpdate);
+    updateSlashMenu(target.value, props, requestUpdate);
     inputHistory.reset();
     props.onDraftChange(target.value);
   };
@@ -1152,7 +1235,9 @@ export function renderChat(props: ChatProps) {
                       <div class="chat-queue__text">
                         ${
                           item.text ||
-                          (item.attachments?.length ? `Image (${item.attachments.length})` : "")
+                          (item.attachments?.length
+                            ? `Attachment (${item.attachments.length})`
+                            : "")
                         }
                       </div>
                       <button

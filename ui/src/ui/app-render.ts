@@ -1357,6 +1357,15 @@ export function renderApp(state: AppViewState) {
                 compactionStatus: state.compactionStatus,
                 fallbackStatus: state.fallbackStatus,
                 assistantAvatarUrl: chatAvatarUrl,
+                availableSkills:
+                  state.skillsReport?.skills
+                    ?.filter(
+                      (skill) => skill.eligible && !skill.disabled && !skill.blockedByAllowlist,
+                    )
+                    .map((skill) => ({
+                      description: skill.description,
+                      name: skill.name,
+                    })) ?? [],
                 messages: state.chatMessages,
                 toolMessages: state.chatToolMessages,
                 streamSegments: state.chatStreamSegments,
