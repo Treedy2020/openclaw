@@ -17,6 +17,7 @@ import { resolveDefaultAgentWorkspaceDir } from "../../agents/workspace.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import { logConfigUpdated } from "../../config/logging.js";
+import { ensureGlobalUndiciEnvProxyDispatcher } from "../../infra/net/undici-global-dispatcher.js";
 import { resolvePluginProviders } from "../../plugins/providers.js";
 import type { ProviderAuthResult, ProviderPlugin } from "../../plugins/types.js";
 import type { RuntimeEnv } from "../../runtime.js";
@@ -346,6 +347,10 @@ export async function modelsAuthLoginCommand(opts: LoginOptions, runtime: Runtim
   if (!process.stdin.isTTY) {
     throw new Error("models auth login requires an interactive TTY.");
   }
+
+  // Provider auth flows can use fetch() for OAuth/token exchange.
+  // Bootstrap undici's env-proxy dispatcher so login obeys HTTP(S)_PROXY.
+  ensureGlobalUndiciEnvProxyDispatcher();
 
   const config = await loadValidConfigOrThrow();
   const defaultAgentId = resolveDefaultAgentId(config);
