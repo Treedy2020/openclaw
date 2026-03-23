@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   createVpsAwareOAuthHandlers: vi.fn(),
   runOpenAIOAuthTlsPreflight: vi.fn(),
   formatOpenAIOAuthTlsPreflightFix: vi.fn(),
-  ensureGlobalUndiciEnvProxyDispatcher: vi.fn(),
+  forceGlobalUndiciEnvProxyDispatcher: vi.fn(),
 }));
 
 vi.mock("@mariozechner/pi-ai/oauth", () => ({
@@ -19,7 +19,7 @@ vi.mock("./oauth-flow.js", () => ({
 }));
 
 vi.mock("../infra/net/undici-global-dispatcher.js", () => ({
-  ensureGlobalUndiciEnvProxyDispatcher: mocks.ensureGlobalUndiciEnvProxyDispatcher,
+  forceGlobalUndiciEnvProxyDispatcher: mocks.forceGlobalUndiciEnvProxyDispatcher,
 }));
 
 vi.mock("./oauth-tls-preflight.js", () => ({
@@ -83,7 +83,7 @@ describe("loginOpenAICodexOAuth", () => {
 
     const { result, spin, runtime } = await runCodexOAuth({ isRemote: false });
 
-    expect(mocks.ensureGlobalUndiciEnvProxyDispatcher).toHaveBeenCalledOnce();
+    expect(mocks.forceGlobalUndiciEnvProxyDispatcher).toHaveBeenCalledOnce();
     expect(result).toEqual(creds);
     expect(mocks.loginOpenAICodex).toHaveBeenCalledOnce();
     expect(spin.stop).toHaveBeenCalledWith("OpenAI OAuth complete");

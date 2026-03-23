@@ -100,6 +100,27 @@ export function ensureGlobalUndiciEnvProxyDispatcher(): void {
   }
 }
 
+/**
+ * Force env-proxy dispatcher installation when proxy env vars are set.
+ *
+ * Unlike ensureGlobalUndiciEnvProxyDispatcher(), this intentionally replaces
+ * any existing dispatcher (including custom/unsupported ones). Use only for
+ * short-lived CLI flows that must honor HTTP(S)_PROXY, such as OAuth token
+ * exchange in remote/VPS sessions.
+ */
+export function forceGlobalUndiciEnvProxyDispatcher(): void {
+  if (!hasEnvHttpProxyConfigured("https")) {
+    return;
+  }
+  try {
+    setGlobalDispatcher(new EnvHttpProxyAgent());
+    lastAppliedProxyBootstrap = true;
+    lastAppliedTimeoutKey = null;
+  } catch {
+    // Best-effort bootstrap only.
+  }
+}
+
 export function ensureGlobalUndiciStreamTimeouts(opts?: { timeoutMs?: number }): void {
   const timeoutMsRaw = opts?.timeoutMs ?? DEFAULT_UNDICI_STREAM_TIMEOUT_MS;
   const timeoutMs = Math.max(1, Math.floor(timeoutMsRaw));
