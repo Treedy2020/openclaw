@@ -17,8 +17,7 @@ import { resolveDefaultAgentWorkspaceDir } from "../../agents/workspace.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import { logConfigUpdated } from "../../config/logging.js";
-import { resolveProxyFetchFromEnv } from "../../infra/net/proxy-fetch.js";
-import { forceGlobalUndiciEnvProxyDispatcher } from "../../infra/net/undici-global-dispatcher.js";
+import { installOAuthProxyContext } from "../../infra/net/oauth-proxy-context.js";
 import { resolvePluginProviders } from "../../plugins/providers.js";
 import type { ProviderAuthResult, ProviderPlugin } from "../../plugins/types.js";
 import type { RuntimeEnv } from "../../runtime.js";
@@ -344,30 +343,15 @@ async function runBuiltInOpenAICodexLogin(params: {
   }
 }
 
-function installEnvProxyFetchIfConfigured(): () => void {
-  const proxyFetch = resolveProxyFetchFromEnv(process.env);
-  if (!proxyFetch) {
-    return () => {};
-  }
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = proxyFetch;
-  return () => {
-    globalThis.fetch = originalFetch;
-  };
-}
-
 export async function modelsAuthLoginCommand(opts: LoginOptions, runtime: RuntimeEnv) {
   if (!process.stdin.isTTY) {
     throw new Error("models auth login requires an interactive TTY.");
   }
 
   // Provider auth flows can use fetch() for OAuth/token exchange.
-  // Force env-proxy dispatcher so login obeys HTTP(S)_PROXY even when a
-  // previous custom dispatcher is installed.
-  forceGlobalUndiciEnvProxyDispatcher();
-  // Also override global fetch for this CLI turn so plugin auth flows that
-  // call fetch() directly inherit the same proxy behavior deterministically.
-  const restoreFetch = installEnvProxyFetchIfConfigured();
+  // Install proxy context so all OAuth calls in this CLI turn honor
+  // HTTP(S)_PROXY/NO_PROXY consistently.
+  const restoreFetch = installOAuthProxyContext(process.env);
 
   try {
     const config = await loadValidConfigOrThrow();

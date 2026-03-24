@@ -1,3 +1,4 @@
+import { installOAuthProxyContext } from "../infra/net/oauth-proxy-context.js";
 import type { ApplyAuthChoiceParams, ApplyAuthChoiceResult } from "./auth-choice.apply.js";
 import { loginChutes } from "./chutes-oauth.js";
 import { isRemoteEnvironment } from "./oauth-env.js";
@@ -44,6 +45,7 @@ export async function applyAuthChoiceOAuth(
     );
 
     const spin = params.prompter.progress("Starting OAuth flow…");
+    const restoreFetch = installOAuthProxyContext(process.env);
     try {
       const { onAuth, onPrompt } = createVpsAwareOAuthHandlers({
         isRemote,
@@ -86,6 +88,8 @@ export async function applyAuthChoiceOAuth(
         ].join("\n"),
         "OAuth help",
       );
+    } finally {
+      restoreFetch();
     }
     return { config: nextConfig };
   }

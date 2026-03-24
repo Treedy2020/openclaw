@@ -7,6 +7,7 @@ import {
 import { loadConfig, type OpenClawConfig } from "../../config/config.js";
 import { coerceSecretRef } from "../../config/types.secrets.js";
 import { withFileLock } from "../../infra/file-lock.js";
+import { installOAuthProxyContext } from "../../infra/net/oauth-proxy-context.js";
 import { refreshQwenPortalCredentials } from "../../providers/qwen-portal-oauth.js";
 import { resolveSecretRefString, type SecretRefResolveCache } from "../../secrets/resolve.js";
 import { refreshChutesTokens } from "../chutes-oauth.js";
@@ -180,26 +181,32 @@ async function refreshOAuthTokenWithLock(params: {
       [cred.provider]: cred,
     };
 
-    const result =
-      String(cred.provider) === "chutes"
-        ? await (async () => {
-            const newCredentials = await refreshChutesTokens({
-              credential: cred,
-            });
-            return { apiKey: newCredentials.access, newCredentials };
-          })()
-        : String(cred.provider) === "qwen-portal"
+    const restoreFetch = installOAuthProxyContext(process.env);
+    const result = await (async () => {
+      try {
+        return String(cred.provider) === "chutes"
           ? await (async () => {
-              const newCredentials = await refreshQwenPortalCredentials(cred);
+              const newCredentials = await refreshChutesTokens({
+                credential: cred,
+              });
               return { apiKey: newCredentials.access, newCredentials };
             })()
-          : await (async () => {
-              const oauthProvider = resolveOAuthProvider(cred.provider);
-              if (!oauthProvider) {
-                return null;
-              }
-              return await getOAuthApiKey(oauthProvider, oauthCreds);
-            })();
+          : String(cred.provider) === "qwen-portal"
+            ? await (async () => {
+                const newCredentials = await refreshQwenPortalCredentials(cred);
+                return { apiKey: newCredentials.access, newCredentials };
+              })()
+            : await (async () => {
+                const oauthProvider = resolveOAuthProvider(cred.provider);
+                if (!oauthProvider) {
+                  return null;
+                }
+                return await getOAuthApiKey(oauthProvider, oauthCreds);
+              })();
+      } finally {
+        restoreFetch();
+      }
+    })();
     if (!result) {
       return null;
     }

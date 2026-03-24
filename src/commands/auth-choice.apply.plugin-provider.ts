@@ -6,6 +6,7 @@ import {
 } from "../agents/agent-scope.js";
 import { upsertAuthProfile } from "../agents/auth-profiles.js";
 import { resolveDefaultAgentWorkspaceDir } from "../agents/workspace.js";
+import { installOAuthProxyContext } from "../infra/net/oauth-proxy-context.js";
 import { enablePluginInConfig } from "../plugins/enable.js";
 import {
   resolveProviderPluginChoice,
@@ -56,20 +57,27 @@ export async function runProviderPluginAuthMethod(params: {
     resolveDefaultAgentWorkspaceDir();
 
   const isRemote = isRemoteEnvironment();
-  const result = await params.method.run({
-    config: params.config,
-    agentDir,
-    workspaceDir,
-    prompter: params.prompter,
-    runtime: params.runtime,
-    isRemote,
-    openUrl: async (url) => {
-      await openUrl(url);
-    },
-    oauth: {
-      createVpsAwareHandlers: (opts) => createVpsAwareOAuthHandlers(opts),
-    },
-  });
+  const restoreFetch = installOAuthProxyContext(process.env);
+  const result = await (async () => {
+    try {
+      return await params.method.run({
+        config: params.config,
+        agentDir,
+        workspaceDir,
+        prompter: params.prompter,
+        runtime: params.runtime,
+        isRemote,
+        openUrl: async (url) => {
+          await openUrl(url);
+        },
+        oauth: {
+          createVpsAwareHandlers: (opts) => createVpsAwareOAuthHandlers(opts),
+        },
+      });
+    } finally {
+      restoreFetch();
+    }
+  })();
 
   let nextConfig = params.config;
   if (result.configPatch) {
