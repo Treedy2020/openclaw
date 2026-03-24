@@ -17,6 +17,7 @@ import { resolveDefaultAgentWorkspaceDir } from "../../agents/workspace.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import { logConfigUpdated } from "../../config/logging.js";
+import { resolveProxyFetchFromEnv } from "../../infra/net/proxy-fetch.js";
 import { forceGlobalUndiciEnvProxyDispatcher } from "../../infra/net/undici-global-dispatcher.js";
 import { resolvePluginProviders } from "../../plugins/providers.js";
 import type { ProviderAuthResult, ProviderPlugin } from "../../plugins/types.js";
@@ -343,6 +344,18 @@ async function runBuiltInOpenAICodexLogin(params: {
   }
 }
 
+function installEnvProxyFetchIfConfigured(): () => void {
+  const proxyFetch = resolveProxyFetchFromEnv(process.env);
+  if (!proxyFetch) {
+    return () => {};
+  }
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = proxyFetch;
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
 export async function modelsAuthLoginCommand(opts: LoginOptions, runtime: RuntimeEnv) {
   if (!process.stdin.isTTY) {
     throw new Error("models auth login requires an interactive TTY.");
@@ -352,125 +365,132 @@ export async function modelsAuthLoginCommand(opts: LoginOptions, runtime: Runtim
   // Force env-proxy dispatcher so login obeys HTTP(S)_PROXY even when a
   // previous custom dispatcher is installed.
   forceGlobalUndiciEnvProxyDispatcher();
+  // Also override global fetch for this CLI turn so plugin auth flows that
+  // call fetch() directly inherit the same proxy behavior deterministically.
+  const restoreFetch = installEnvProxyFetchIfConfigured();
 
-  const config = await loadValidConfigOrThrow();
-  const defaultAgentId = resolveDefaultAgentId(config);
-  const agentDir = resolveAgentDir(config, defaultAgentId);
-  const workspaceDir =
-    resolveAgentWorkspaceDir(config, defaultAgentId) ?? resolveDefaultAgentWorkspaceDir();
-  const requestedProviderId = normalizeProviderId(String(opts.provider ?? ""));
-  const prompter = createClackPrompter();
+  try {
+    const config = await loadValidConfigOrThrow();
+    const defaultAgentId = resolveDefaultAgentId(config);
+    const agentDir = resolveAgentDir(config, defaultAgentId);
+    const workspaceDir =
+      resolveAgentWorkspaceDir(config, defaultAgentId) ?? resolveDefaultAgentWorkspaceDir();
+    const requestedProviderId = normalizeProviderId(String(opts.provider ?? ""));
+    const prompter = createClackPrompter();
 
-  if (requestedProviderId === "openai-codex") {
-    await runBuiltInOpenAICodexLogin({
-      opts,
-      runtime,
-      prompter,
-      agentDir,
-    });
-    return;
-  }
-
-  const providers = resolvePluginProviders({ config, workspaceDir });
-  if (providers.length === 0) {
-    throw new Error(
-      `No provider plugins found. Install one via \`${formatCliCommand("openclaw plugins install")}\`.`,
-    );
-  }
-
-  const requestedProvider = resolveRequestedLoginProviderOrThrow(providers, opts.provider);
-  const selectedProvider =
-    requestedProvider ??
-    (await prompter
-      .select({
-        message: "Select a provider",
-        options: providers.map((provider) => ({
-          value: provider.id,
-          label: provider.label,
-          hint: provider.docsPath ? `Docs: ${provider.docsPath}` : undefined,
-        })),
-      })
-      .then((id) => resolveProviderMatch(providers, String(id))));
-
-  if (!selectedProvider) {
-    throw new Error("Unknown provider. Use --provider <id> to pick a provider plugin.");
-  }
-
-  const chosenMethod =
-    pickAuthMethod(selectedProvider, opts.method) ??
-    (selectedProvider.auth.length === 1
-      ? selectedProvider.auth[0]
-      : await prompter
-          .select({
-            message: `Auth method for ${selectedProvider.label}`,
-            options: selectedProvider.auth.map((method) => ({
-              value: method.id,
-              label: method.label,
-              hint: method.hint,
-            })),
-          })
-          .then((id) => selectedProvider.auth.find((method) => method.id === String(id))));
-
-  if (!chosenMethod) {
-    throw new Error("Unknown auth method. Use --method <id> to select one.");
-  }
-
-  const isRemote = isRemoteEnvironment();
-  const result: ProviderAuthResult = await chosenMethod.run({
-    config,
-    agentDir,
-    workspaceDir,
-    prompter,
-    runtime,
-    isRemote,
-    openUrl: async (url) => {
-      await openUrl(url);
-    },
-    oauth: {
-      createVpsAwareHandlers: (params) => createVpsAwareOAuthHandlers(params),
-    },
-  });
-
-  for (const profile of result.profiles) {
-    upsertAuthProfile({
-      profileId: profile.profileId,
-      credential: profile.credential,
-      agentDir,
-    });
-  }
-
-  await updateConfig((cfg) => {
-    let next = cfg;
-    if (result.configPatch) {
-      next = mergeConfigPatch(next, result.configPatch);
+    if (requestedProviderId === "openai-codex") {
+      await runBuiltInOpenAICodexLogin({
+        opts,
+        runtime,
+        prompter,
+        agentDir,
+      });
+      return;
     }
+
+    const providers = resolvePluginProviders({ config, workspaceDir });
+    if (providers.length === 0) {
+      throw new Error(
+        `No provider plugins found. Install one via \`${formatCliCommand("openclaw plugins install")}\`.`,
+      );
+    }
+
+    const requestedProvider = resolveRequestedLoginProviderOrThrow(providers, opts.provider);
+    const selectedProvider =
+      requestedProvider ??
+      (await prompter
+        .select({
+          message: "Select a provider",
+          options: providers.map((provider) => ({
+            value: provider.id,
+            label: provider.label,
+            hint: provider.docsPath ? `Docs: ${provider.docsPath}` : undefined,
+          })),
+        })
+        .then((id) => resolveProviderMatch(providers, String(id))));
+
+    if (!selectedProvider) {
+      throw new Error("Unknown provider. Use --provider <id> to pick a provider plugin.");
+    }
+
+    const chosenMethod =
+      pickAuthMethod(selectedProvider, opts.method) ??
+      (selectedProvider.auth.length === 1
+        ? selectedProvider.auth[0]
+        : await prompter
+            .select({
+              message: `Auth method for ${selectedProvider.label}`,
+              options: selectedProvider.auth.map((method) => ({
+                value: method.id,
+                label: method.label,
+                hint: method.hint,
+              })),
+            })
+            .then((id) => selectedProvider.auth.find((method) => method.id === String(id))));
+
+    if (!chosenMethod) {
+      throw new Error("Unknown auth method. Use --method <id> to select one.");
+    }
+
+    const isRemote = isRemoteEnvironment();
+    const result: ProviderAuthResult = await chosenMethod.run({
+      config,
+      agentDir,
+      workspaceDir,
+      prompter,
+      runtime,
+      isRemote,
+      openUrl: async (url) => {
+        await openUrl(url);
+      },
+      oauth: {
+        createVpsAwareHandlers: (params) => createVpsAwareOAuthHandlers(params),
+      },
+    });
+
     for (const profile of result.profiles) {
-      next = applyAuthProfileConfig(next, {
+      upsertAuthProfile({
         profileId: profile.profileId,
-        provider: profile.credential.provider,
-        mode: credentialMode(profile.credential),
+        credential: profile.credential,
+        agentDir,
       });
     }
-    if (opts.setDefault && result.defaultModel) {
-      next = applyDefaultModel(next, result.defaultModel);
-    }
-    return next;
-  });
 
-  logConfigUpdated(runtime);
-  for (const profile of result.profiles) {
-    runtime.log(
-      `Auth profile: ${profile.profileId} (${profile.credential.provider}/${credentialMode(profile.credential)})`,
-    );
-  }
-  if (result.defaultModel) {
-    runtime.log(
-      opts.setDefault
-        ? `Default model set to ${result.defaultModel}`
-        : `Default model available: ${result.defaultModel} (use --set-default to apply)`,
-    );
-  }
-  if (result.notes && result.notes.length > 0) {
-    await prompter.note(result.notes.join("\n"), "Provider notes");
+    await updateConfig((cfg) => {
+      let next = cfg;
+      if (result.configPatch) {
+        next = mergeConfigPatch(next, result.configPatch);
+      }
+      for (const profile of result.profiles) {
+        next = applyAuthProfileConfig(next, {
+          profileId: profile.profileId,
+          provider: profile.credential.provider,
+          mode: credentialMode(profile.credential),
+        });
+      }
+      if (opts.setDefault && result.defaultModel) {
+        next = applyDefaultModel(next, result.defaultModel);
+      }
+      return next;
+    });
+
+    logConfigUpdated(runtime);
+    for (const profile of result.profiles) {
+      runtime.log(
+        `Auth profile: ${profile.profileId} (${profile.credential.provider}/${credentialMode(profile.credential)})`,
+      );
+    }
+    if (result.defaultModel) {
+      runtime.log(
+        opts.setDefault
+          ? `Default model set to ${result.defaultModel}`
+          : `Default model available: ${result.defaultModel} (use --set-default to apply)`,
+      );
+    }
+    if (result.notes && result.notes.length > 0) {
+      await prompter.note(result.notes.join("\n"), "Provider notes");
+    }
+  } finally {
+    restoreFetch();
   }
 }
